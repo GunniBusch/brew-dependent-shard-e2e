@@ -136,6 +136,7 @@ jobs:
       - name: Test dependents
         run: |
           mkdir -p "$BOTTLES_DIR"
+          cd "$BOTTLES_DIR"
           xargs -t "$BREW_DIR/bin/brew" test-bot \
             --dry-run \
             --testing-formulae="$TESTING_FORMULAE" \
@@ -147,4 +148,3 @@ jobs:
           HOMEBREW_DOWNLOAD_CONCURRENCY: ${{ needs.setup_dep_tests.outputs.download-concurrency }}
           TEST_BOT_DEPENDENTS_ARGS: ${{ needs.setup_dep_tests.outputs.test-bot-dependents-args }}
           TESTED_FORMULAE: ${{ needs.formulae_detect.outputs.testing_formulae }}
-        working-directory: ${{ env.BOTTLES_DIR }}
