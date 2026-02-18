@@ -2,20 +2,67 @@ name: Core Matrix Linux Sim
 
 on:
   workflow_dispatch:
+    inputs:
+      testing_formulae:
+        description: Formulae to test dependents for
+        required: false
+        default: openssl@3
+      brew_ref:
+        description: Brew branch/tag/sha to test
+        required: false
+        default: feat/parrallel-deb-test
+      dependent_shard_count:
+        description: HOMEBREW_DEPENDENT_SHARD_COUNT
+        required: false
+        default: "4"
 
 jobs:
+  tap_syntax:
+    runs-on: ubuntu-latest
+    steps:
+      - run: true
+
+  tests:
+    runs-on: ubuntu-latest
+    steps:
+      - run: true
+
+  formulae_detect:
+    runs-on: ubuntu-latest
+    outputs:
+      testing_formulae: ${{ steps.vars.outputs.testing_formulae }}
+    steps:
+      - id: vars
+        run: echo "testing_formulae=${{ inputs.testing_formulae }}" >> "$GITHUB_OUTPUT"
+
+  setup_dep_tests:
+    runs-on: ubuntu-latest
+    outputs:
+      syntax-only: "false"
+      test-dependents: "true"
+      fail-fast: "false"
+      long-timeout: "false"
+      linux-runner: "ubuntu-latest"
+      download-concurrency: "4"
+      test-bot-dependents-args: "--only-formulae-dependents"
+    steps:
+      - run: true
+
   setup_dep_runners:
-    runs-on: ubuntu-22.04
+    needs: [formulae_detect, setup_dep_tests]
+    if: >
+      !fromJson(needs.setup_dep_tests.outputs.syntax-only) &&
+      fromJson(needs.setup_dep_tests.outputs.test-dependents)
+    runs-on: ubuntu-latest
     outputs:
       runners: ${{ steps.filter-runners.outputs.runners }}
       runners_present: ${{ steps.filter-runners.outputs.runners_present }}
     env:
-      TESTING_FORMULAE: openssl@3
-      HOMEBREW_DEPENDENT_SHARD_COUNT: "4"
-      HOMEBREW_LINUX_RUNNER: ubuntu-latest
-      HOMEBREW_MACOS_LONG_TIMEOUT: "false"
-      GITHUB_RUN_ID: "12345"
-      TEST_BRANCH: feat/parrallel-deb-test
+      HOMEBREW_LINUX_RUNNER: ${{ needs.setup_dep_tests.outputs.linux-runner }}
+      HOMEBREW_MACOS_LONG_TIMEOUT: ${{ needs.setup_dep_tests.outputs.long-timeout }}
+      HOMEBREW_DEPENDENT_SHARD_COUNT: ${{ inputs.dependent_shard_count }}
+      TESTING_FORMULAE: ${{ needs.formulae_detect.outputs.testing_formulae }}
+      TEST_BRANCH: ${{ inputs.brew_ref }}
       BREW_DIR: /tmp/brew
     steps:
       - name: Clone brew branch
@@ -24,12 +71,7 @@ jobs:
       - name: Fetch upstream brew tags
         run: git -C "$BREW_DIR" fetch --force --tags https://github.com/Homebrew/brew.git
 
-      - name: Bootstrap brew
-        run: |
-          cd "$BREW_DIR"
-          bin/brew --version
-
-      - name: Determine runners (core-like)
+      - name: Determine runners to use for test_deps job
         id: determine-dependent-runners
         run: |
           cd "$BREW_DIR"
@@ -55,18 +97,34 @@ jobs:
           fi
 
   test_deps:
-    needs: [setup_dep_runners]
-    if: fromJson(needs.setup_dep_runners.outputs.runners_present)
+    needs:
+      [tap_syntax, formulae_detect, setup_dep_tests, setup_dep_runners, tests]
+    if: >
+      (success() ||
+      (failure() &&
+       !fromJson(needs.setup_dep_tests.outputs.fail-fast) &&
+       !contains(fromJson('["skipped", "cancelled"]'), needs.tests.result))) &&
+      !fromJson(needs.setup_dep_tests.outputs.syntax-only) &&
+      fromJson(needs.setup_dep_tests.outputs.test-dependents) &&
+      fromJson(needs.setup_dep_runners.outputs.runners_present)
     strategy:
       matrix:
         include: ${{ fromJson(needs.setup_dep_runners.outputs.runners) }}
-      fail-fast: false
-    runs-on: ubuntu-22.04
+      fail-fast: ${{ fromJson(needs.setup_dep_tests.outputs.fail-fast) }}
+    name: ${{ matrix.name }} (deps)
+    runs-on: ${{ matrix.runner }}
+    container: ${{ matrix.container }}
+    timeout-minutes: ${{ matrix.timeout }}
+    defaults:
+      run:
+        shell: /bin/bash -xeuo pipefail {0}
+        working-directory: ${{ matrix.workdir || github.workspace }}
     env:
-      TEST_BOT_DEPENDENTS_ARGS: --only-formulae-dependents
-      TESTED_FORMULAE: openssl@3
+      GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      HOMEBREW_GITHUB_API_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      BOTTLES_DIR: ${{ matrix.workdir || github.workspace }}/bottles
       TESTING_FORMULAE: ${{ matrix.testing_formulae }}
-      TEST_BRANCH: feat/parrallel-deb-test
+      TEST_BRANCH: ${{ inputs.brew_ref }}
       BREW_DIR: /tmp/brew
     steps:
       - name: Clone brew branch
@@ -75,16 +133,9 @@ jobs:
       - name: Fetch upstream brew tags
         run: git -C "$BREW_DIR" fetch --force --tags https://github.com/Homebrew/brew.git
 
-      - name: Bootstrap brew
+      - name: Test dependents
         run: |
-          cd "$BREW_DIR"
-          bin/brew --version
-
-      - name: Test dependents (core-like invocation + shard args)
-        run: |
-          BOTTLES_DIR=/tmp/bottles
           mkdir -p "$BOTTLES_DIR"
-          cd "$BOTTLES_DIR"
           xargs -t "$BREW_DIR/bin/brew" test-bot \
             --dry-run \
             --testing-formulae="$TESTING_FORMULAE" \
@@ -92,3 +143,8 @@ jobs:
             --dependent-shard-count="${{ matrix.dependent_shard_count }}" \
             --dependent-shard-index="${{ matrix.dependent_shard_index }}" \
             <<<"$TEST_BOT_DEPENDENTS_ARGS"
+        env:
+          HOMEBREW_DOWNLOAD_CONCURRENCY: ${{ needs.setup_dep_tests.outputs.download-concurrency }}
+          TEST_BOT_DEPENDENTS_ARGS: ${{ needs.setup_dep_tests.outputs.test-bot-dependents-args }}
+          TESTED_FORMULAE: ${{ needs.formulae_detect.outputs.testing_formulae }}
+        working-directory: ${{ env.BOTTLES_DIR }}
