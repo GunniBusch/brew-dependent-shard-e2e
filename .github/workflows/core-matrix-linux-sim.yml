@@ -117,7 +117,7 @@ jobs:
       matrix:
         include: ${{ fromJson(needs.setup_dep_runners.outputs.runners) }}
       fail-fast: ${{ fromJson(needs.setup_dep_tests.outputs.fail-fast) }}
-    name: ${{ matrix.name }} (deps)
+    name: ${{ matrix.name }} (deps shard ${{ matrix.dependent_shard_index }}/${{ matrix.dependent_shard_count }})
     runs-on: ${{ matrix.runner }}
     container: ${{ matrix.container }}
     timeout-minutes: ${{ matrix.timeout }}
