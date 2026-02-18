@@ -10,6 +10,7 @@ jobs:
     runs-on: ubuntu-22.04
     container:
       image: ghcr.io/homebrew/ubuntu22.04:main
+      options: --user=linuxbrew
     defaults:
       run:
         shell: /bin/bash -xeuo pipefail {0}
@@ -18,25 +19,29 @@ jobs:
       HOMEBREW_NO_INSTALL_FROM_API: 1
       HOMEBREW_DEPENDENT_SHARD_COUNT: 4
     steps:
-      - name: Checkout brew branch under test
-        uses: actions/checkout@v5
-        with:
-          repository: GunniBusch/brew
-          ref: codex/dependent-shard-e2e
+      - name: Clone brew branch under test
+        run: |
+          git clone --depth=1 --branch codex/dependent-shard-e2e https://github.com/GunniBusch/brew.git brew
 
       - name: Show branch
         run: |
+          cd brew
           git rev-parse --abbrev-ref HEAD
           git log -1 --oneline
 
       - name: Typecheck
-        run: bin/brew typecheck
+        run: |
+          cd brew
+          bin/brew typecheck
 
       - name: Sharding unit tests
         run: |
+          cd brew
           bin/brew tests --only=dev-cmd/test-bot
           bin/brew tests --only=test_bot/formulae_dependents
           bin/brew tests --only=github_runner_matrix
 
       - name: Full quality gate
-        run: bin/brew lgtm
+        run: |
+          cd brew
+          bin/brew lgtm
