@@ -1,0 +1,91 @@
+name: Core Matrix Linux Sim
+
+on:
+  workflow_dispatch:
+
+jobs:
+  setup_dep_runners:
+    runs-on: ubuntu-22.04
+    outputs:
+      runners: ${{ steps.filter-runners.outputs.runners }}
+      runners_present: ${{ steps.filter-runners.outputs.runners_present }}
+    env:
+      TESTING_FORMULAE: openssl@3
+      HOMEBREW_DEPENDENT_SHARD_COUNT: "4"
+      HOMEBREW_LINUX_RUNNER: ubuntu-latest
+      HOMEBREW_MACOS_LONG_TIMEOUT: "false"
+      GITHUB_RUN_ID: "12345"
+    steps:
+      - name: Set up Homebrew
+        uses: Homebrew/actions/setup-homebrew@main
+        with:
+          core: true
+          cask: false
+
+      - name: Switch brew to test branch
+        run: |
+          BREW_DIR="$(brew --repository)"
+          cd "$BREW_DIR"
+          git remote add gunni https://github.com/GunniBusch/brew.git || git remote set-url gunni https://github.com/GunniBusch/brew.git
+          git fetch gunni feat/parrallel-deb-test
+          git checkout -B feat/parrallel-deb-test --track gunni/feat/parrallel-deb-test || git checkout feat/parrallel-deb-test
+
+      - name: Determine runners (core-like)
+        id: determine-dependent-runners
+        run: brew determine-test-runners --dependents --eval-all "$TESTING_FORMULAE"
+
+      - name: Filter to Linux matrix rows only
+        id: filter-runners
+        run: |
+          all_runners='${{ steps.determine-dependent-runners.outputs.runners }}'
+          linux_runners=$(echo "$all_runners" | ruby -rjson -e '
+            rows = JSON.parse(STDIN.read)
+            linux_rows = rows.select do |r|
+              runner = r.fetch("runner")
+              runner.start_with?("ubuntu") || runner.include?("linux")
+            end
+            puts linux_rows.to_json
+          ')
+          echo "runners=$linux_runners" >> "$GITHUB_OUTPUT"
+          if [[ "$linux_runners" == "[]" ]]; then
+            echo "runners_present=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "runners_present=true" >> "$GITHUB_OUTPUT"
+          fi
+
+  test_deps:
+    needs: [setup_dep_runners]
+    if: fromJson(needs.setup_dep_runners.outputs.runners_present)
+    strategy:
+      matrix:
+        include: ${{ fromJson(needs.setup_dep_runners.outputs.runners) }}
+      fail-fast: false
+    runs-on: ubuntu-22.04
+    env:
+      TEST_BOT_DEPENDENTS_ARGS: --only-formulae-dependents --junit
+      TESTED_FORMULAE: openssl@3
+      TESTING_FORMULAE: ${{ matrix.testing_formulae }}
+    steps:
+      - name: Set up Homebrew
+        uses: Homebrew/actions/setup-homebrew@main
+        with:
+          core: true
+          cask: false
+
+      - name: Switch brew to test branch
+        run: |
+          BREW_DIR="$(brew --repository)"
+          cd "$BREW_DIR"
+          git remote add gunni https://github.com/GunniBusch/brew.git || git remote set-url gunni https://github.com/GunniBusch/brew.git
+          git fetch gunni feat/parrallel-deb-test
+          git checkout -B feat/parrallel-deb-test --track gunni/feat/parrallel-deb-test || git checkout feat/parrallel-deb-test
+
+      - name: Test dependents (core-like invocation + shard args)
+        run: |
+          xargs -t brew test-bot \
+            --dry-run \
+            --testing-formulae="$TESTING_FORMULAE" \
+            --tested-formulae="$TESTED_FORMULAE" \
+            --dependent-shard-count="${{ matrix.dependent_shard_count }}" \
+            --dependent-shard-index="${{ matrix.dependent_shard_index }}" \
+            <<<"$TEST_BOT_DEPENDENTS_ARGS"
