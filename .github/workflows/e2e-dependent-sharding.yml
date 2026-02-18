@@ -6,6 +6,67 @@ on:
     branches: [ main ]
 
 jobs:
+  simulate-core-dependent-flow:
+    runs-on: ubuntu-22.04
+    container:
+      image: ghcr.io/homebrew/ubuntu22.04:main
+      options: --user=linuxbrew
+    defaults:
+      run:
+        shell: /bin/bash -xeuo pipefail {0}
+    env:
+      HOMEBREW_DEVELOPER: 1
+      HOMEBREW_NO_INSTALL_FROM_API: 1
+      HOMEBREW_DEPENDENT_SHARD_COUNT: 4
+      HOMEBREW_LINUX_RUNNER: ubuntu-latest
+      HOMEBREW_MACOS_LONG_TIMEOUT: "false"
+      GITHUB_RUN_ID: "12345"
+      BREW_DIR: /home/linuxbrew/.linuxbrew/Homebrew
+      TEST_BRANCH: feat/parrallel-deb-test
+      TESTING_FORMULAE: openssl@3
+      TEST_BOT_DEPENDENTS_ARGS: --only-formulae-dependents --junit
+    steps:
+      - name: Switch brew to test branch
+        run: |
+          cd "$BREW_DIR"
+          git remote add gunni https://github.com/GunniBusch/brew.git || git remote set-url gunni https://github.com/GunniBusch/brew.git
+          git fetch gunni "$TEST_BRANCH"
+          git checkout -B "$TEST_BRANCH" --track "gunni/$TEST_BRANCH" || git checkout "$TEST_BRANCH"
+
+      - name: Determine dependent runners (core-like)
+        run: |
+          cd "$BREW_DIR"
+          tmp_output=$(mktemp)
+          GITHUB_OUTPUT="$tmp_output" bin/brew determine-test-runners --dependents --eval-all "$TESTING_FORMULAE"
+          echo "::group::determine-test-runners output"
+          cat "$tmp_output"
+          echo "::endgroup::"
+
+          runners_json=$(sed -n 's/^runners=//p' "$tmp_output")
+          if [[ -z "$runners_json" || "$runners_json" == "[]" ]]; then
+            echo "No dependent runners selected; failing simulation"
+            exit 1
+          fi
+
+          first_row=$(echo "$runners_json" | bin/brew ruby -rjson -e 'rows=JSON.parse(STDIN.read); puts rows.first.to_json')
+          testing_formulae=$(echo "$first_row" | bin/brew ruby -rjson -e 'row=JSON.parse(STDIN.read); puts row.fetch("testing_formulae")')
+          shard_count=$(echo "$first_row" | bin/brew ruby -rjson -e 'row=JSON.parse(STDIN.read); puts row.fetch("dependent_shard_count")')
+          shard_index=$(echo "$first_row" | bin/brew ruby -rjson -e 'row=JSON.parse(STDIN.read); puts row.fetch("dependent_shard_index")')
+
+          echo "Selected runner row: $first_row"
+          echo "testing_formulae=$testing_formulae"
+          echo "dependent_shard_count=$shard_count"
+          echo "dependent_shard_index=$shard_index"
+
+          # Simulate the same invocation style used in homebrew-core test_deps.
+          xargs -t bin/brew test-bot \
+            --dry-run \
+            --testing-formulae="$testing_formulae" \
+            --tested-formulae="$TESTING_FORMULAE" \
+            --dependent-shard-count="$shard_count" \
+            --dependent-shard-index="$shard_index" \
+            <<<"$TEST_BOT_DEPENDENTS_ARGS"
+
   validate-brew-sharding:
     runs-on: ubuntu-22.04
     container:
