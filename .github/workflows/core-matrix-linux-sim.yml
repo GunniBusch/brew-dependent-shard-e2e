@@ -16,30 +16,27 @@ jobs:
       HOMEBREW_MACOS_LONG_TIMEOUT: "false"
       GITHUB_RUN_ID: "12345"
       TEST_BRANCH: feat/parrallel-deb-test
+      BREW_DIR: ${{ runner.temp }}/brew
     steps:
-      - name: Set up Homebrew
-        uses: Homebrew/actions/setup-homebrew@main
-        with:
-          core: true
-          cask: false
+      - name: Clone brew branch
+        run: git clone --depth=1 --branch "$TEST_BRANCH" https://github.com/GunniBusch/brew.git "$BREW_DIR"
 
-      - name: Switch brew to test branch
+      - name: Bootstrap brew
         run: |
-          BREW_DIR="$(brew --repository)"
           cd "$BREW_DIR"
-          git remote add gunni https://github.com/GunniBusch/brew.git || git remote set-url gunni https://github.com/GunniBusch/brew.git
-          git fetch gunni "$TEST_BRANCH"
-          git checkout -B "$TEST_BRANCH" --track "gunni/$TEST_BRANCH" || git checkout "$TEST_BRANCH"
+          bin/brew --version
 
       - name: Determine runners (core-like)
         id: determine-dependent-runners
-        run: brew determine-test-runners --dependents --eval-all "$TESTING_FORMULAE"
+        run: |
+          cd "$BREW_DIR"
+          bin/brew determine-test-runners --dependents --eval-all "$TESTING_FORMULAE"
 
       - name: Filter to Linux matrix rows only
         id: filter-runners
         run: |
           all_runners='${{ steps.determine-dependent-runners.outputs.runners }}'
-          linux_runners=$(echo "$all_runners" | brew ruby -rjson -e '
+          linux_runners=$(echo "$all_runners" | ruby -rjson -e '
             rows = JSON.parse(STDIN.read)
             linux_rows = rows.select do |r|
               runner = r.fetch("runner")
@@ -67,24 +64,20 @@ jobs:
       TESTED_FORMULAE: openssl@3
       TESTING_FORMULAE: ${{ matrix.testing_formulae }}
       TEST_BRANCH: feat/parrallel-deb-test
+      BREW_DIR: ${{ runner.temp }}/brew
     steps:
-      - name: Set up Homebrew
-        uses: Homebrew/actions/setup-homebrew@main
-        with:
-          core: true
-          cask: false
+      - name: Clone brew branch
+        run: git clone --depth=1 --branch "$TEST_BRANCH" https://github.com/GunniBusch/brew.git "$BREW_DIR"
 
-      - name: Switch brew to test branch
+      - name: Bootstrap brew
         run: |
-          BREW_DIR="$(brew --repository)"
           cd "$BREW_DIR"
-          git remote add gunni https://github.com/GunniBusch/brew.git || git remote set-url gunni https://github.com/GunniBusch/brew.git
-          git fetch gunni "$TEST_BRANCH"
-          git checkout -B "$TEST_BRANCH" --track "gunni/$TEST_BRANCH" || git checkout "$TEST_BRANCH"
+          bin/brew --version
 
       - name: Test dependents (core-like invocation + shard args)
         run: |
-          xargs -t brew test-bot \
+          cd "$BREW_DIR"
+          xargs -t bin/brew test-bot \
             --dry-run \
             --testing-formulae="$TESTING_FORMULAE" \
             --tested-formulae="$TESTED_FORMULAE" \
