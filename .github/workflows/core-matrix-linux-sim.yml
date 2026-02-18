@@ -21,6 +21,9 @@ jobs:
       - name: Clone brew branch
         run: git clone --branch "$TEST_BRANCH" https://github.com/GunniBusch/brew.git "$BREW_DIR"
 
+      - name: Fetch upstream brew tags
+        run: git -C "$BREW_DIR" fetch --force --tags https://github.com/Homebrew/brew.git
+
       - name: Bootstrap brew
         run: |
           cd "$BREW_DIR"
@@ -68,6 +71,9 @@ jobs:
     steps:
       - name: Clone brew branch
         run: git clone --branch "$TEST_BRANCH" https://github.com/GunniBusch/brew.git "$BREW_DIR"
+
+      - name: Fetch upstream brew tags
+        run: git -C "$BREW_DIR" fetch --force --tags https://github.com/Homebrew/brew.git
 
       - name: Bootstrap brew
         run: |
