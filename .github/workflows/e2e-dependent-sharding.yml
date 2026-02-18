@@ -18,15 +18,20 @@ jobs:
       HOMEBREW_DEVELOPER: 1
       HOMEBREW_NO_INSTALL_FROM_API: 1
       HOMEBREW_DEPENDENT_SHARD_COUNT: 4
-      BREW_DIR: /home/linuxbrew/brew
+      BREW_DIR: /home/linuxbrew/.linuxbrew/Homebrew
+      TEST_BRANCH: feat/parrallel-deb-test
     steps:
-      - name: Clone brew branch under test
+      - name: Switch brew to test branch
         run: |
-          git clone --depth=1 --branch feat/parrallel-deb-test https://github.com/GunniBusch/brew.git "$BREW_DIR"
+          cd "$BREW_DIR"
+          git remote add gunni https://github.com/GunniBusch/brew.git || git remote set-url gunni https://github.com/GunniBusch/brew.git
+          git fetch gunni "$TEST_BRANCH"
+          git checkout -B "$TEST_BRANCH" --track "gunni/$TEST_BRANCH" || git checkout "$TEST_BRANCH"
 
       - name: Show branch
         run: |
           cd "$BREW_DIR"
+          git remote -v
           git rev-parse --abbrev-ref HEAD
           git log -1 --oneline
 
