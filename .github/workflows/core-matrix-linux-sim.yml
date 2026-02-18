@@ -63,19 +63,25 @@ jobs:
       HOMEBREW_DEPENDENT_SHARD_COUNT: ${{ inputs.dependent_shard_count }}
       TESTING_FORMULAE: ${{ needs.formulae_detect.outputs.testing_formulae }}
       TEST_BRANCH: ${{ inputs.brew_ref }}
-      BREW_DIR: /tmp/brew
     steps:
-      - name: Clone brew branch
-        run: git clone --branch "$TEST_BRANCH" https://github.com/GunniBusch/brew.git "$BREW_DIR"
+      - name: Set up Homebrew
+        uses: Homebrew/actions/setup-homebrew@main
+        with:
+          core: true
+          cask: false
 
-      - name: Fetch upstream brew tags
-        run: git -C "$BREW_DIR" fetch --force --tags https://github.com/Homebrew/brew.git
+      - name: Switch Homebrew/brew to fork branch
+        run: |
+          cd "${HOMEBREW_REPOSITORY:?}"
+          git remote remove userfork || true
+          git remote add userfork https://github.com/GunniBusch/brew.git
+          git fetch --force --tags userfork "$TEST_BRANCH"
+          git checkout --force -B "$TEST_BRANCH" FETCH_HEAD
 
       - name: Determine runners to use for test_deps job
         id: determine-dependent-runners
         run: |
-          cd "$BREW_DIR"
-          bin/brew determine-test-runners --dependents --eval-all "$TESTING_FORMULAE"
+          brew determine-test-runners --dependents --eval-all "$TESTING_FORMULAE"
 
       - name: Filter to Linux matrix rows only
         id: filter-runners
@@ -125,19 +131,26 @@ jobs:
       BOTTLES_DIR: ${{ matrix.workdir || github.workspace }}/bottles
       TESTING_FORMULAE: ${{ matrix.testing_formulae }}
       TEST_BRANCH: ${{ inputs.brew_ref }}
-      BREW_DIR: /tmp/brew
     steps:
-      - name: Clone brew branch
-        run: git clone --branch "$TEST_BRANCH" https://github.com/GunniBusch/brew.git "$BREW_DIR"
+      - name: Set up Homebrew
+        uses: Homebrew/actions/setup-homebrew@main
+        with:
+          core: true
+          cask: false
 
-      - name: Fetch upstream brew tags
-        run: git -C "$BREW_DIR" fetch --force --tags https://github.com/Homebrew/brew.git
+      - name: Switch Homebrew/brew to fork branch
+        run: |
+          cd "${HOMEBREW_REPOSITORY:?}"
+          git remote remove userfork || true
+          git remote add userfork https://github.com/GunniBusch/brew.git
+          git fetch --force --tags userfork "$TEST_BRANCH"
+          git checkout --force -B "$TEST_BRANCH" FETCH_HEAD
 
       - name: Test dependents
         run: |
           mkdir -p "$BOTTLES_DIR"
           cd "$BOTTLES_DIR"
-          xargs -t "$BREW_DIR/bin/brew" test-bot \
+          xargs -t brew test-bot \
             --dry-run \
             --testing-formulae="$TESTING_FORMULAE" \
             --tested-formulae="$TESTED_FORMULAE" \
