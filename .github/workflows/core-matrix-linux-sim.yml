@@ -19,7 +19,7 @@ jobs:
       BREW_DIR: /tmp/brew
     steps:
       - name: Clone brew branch
-        run: git clone --depth=1 --branch "$TEST_BRANCH" https://github.com/GunniBusch/brew.git "$BREW_DIR"
+        run: git clone --branch "$TEST_BRANCH" https://github.com/GunniBusch/brew.git "$BREW_DIR"
 
       - name: Bootstrap brew
         run: |
@@ -67,7 +67,7 @@ jobs:
       BREW_DIR: /tmp/brew
     steps:
       - name: Clone brew branch
-        run: git clone --depth=1 --branch "$TEST_BRANCH" https://github.com/GunniBusch/brew.git "$BREW_DIR"
+        run: git clone --branch "$TEST_BRANCH" https://github.com/GunniBusch/brew.git "$BREW_DIR"
 
       - name: Bootstrap brew
         run: |
