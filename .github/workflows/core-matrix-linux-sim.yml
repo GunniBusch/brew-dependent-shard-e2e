@@ -76,8 +76,10 @@ jobs:
 
       - name: Test dependents (core-like invocation + shard args)
         run: |
-          cd "$BREW_DIR"
-          xargs -t bin/brew test-bot \
+          BOTTLES_DIR=/tmp/bottles
+          mkdir -p "$BOTTLES_DIR"
+          cd "$BOTTLES_DIR"
+          xargs -t "$BREW_DIR/bin/brew" test-bot \
             --dry-run \
             --testing-formulae="$TESTING_FORMULAE" \
             --tested-formulae="$TESTED_FORMULAE" \
