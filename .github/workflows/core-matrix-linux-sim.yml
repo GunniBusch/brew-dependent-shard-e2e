@@ -33,7 +33,7 @@ jobs:
         id: determine-dependent-runners
         run: |
           cd "$BREW_DIR"
-          bin/brew determine-test-runners --dependents "$TESTING_FORMULAE"
+          bin/brew determine-test-runners --dependents --eval-all "$TESTING_FORMULAE"
 
       - name: Filter to Linux matrix rows only
         id: filter-runners
