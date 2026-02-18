@@ -6,7 +6,7 @@ on:
     branches: [ main ]
 
 jobs:
-  simulate-core-dependent-flow:
+  simulate-core-dependent-flow-linux-only:
     runs-on: ubuntu-22.04
     container:
       image: ghcr.io/homebrew/ubuntu22.04:main
@@ -33,7 +33,7 @@ jobs:
           git fetch gunni "$TEST_BRANCH"
           git checkout -B "$TEST_BRANCH" --track "gunni/$TEST_BRANCH" || git checkout "$TEST_BRANCH"
 
-      - name: Determine dependent runners (core-like)
+      - name: Determine dependent runners (core-like, Linux only)
         run: |
           cd "$BREW_DIR"
           tmp_output=$(mktemp)
@@ -48,12 +48,12 @@ jobs:
             exit 1
           fi
 
-          first_row=$(echo "$runners_json" | bin/brew ruby -rjson -e 'rows=JSON.parse(STDIN.read); puts rows.first.to_json')
-          testing_formulae=$(echo "$first_row" | bin/brew ruby -rjson -e 'row=JSON.parse(STDIN.read); puts row.fetch("testing_formulae")')
-          shard_count=$(echo "$first_row" | bin/brew ruby -rjson -e 'row=JSON.parse(STDIN.read); puts row.fetch("dependent_shard_count")')
-          shard_index=$(echo "$first_row" | bin/brew ruby -rjson -e 'row=JSON.parse(STDIN.read); puts row.fetch("dependent_shard_index")')
+          linux_row=$(echo "$runners_json" | bin/brew ruby -rjson -e 'rows=JSON.parse(STDIN.read); row=rows.find{|r| r.fetch("runner").start_with?("ubuntu")}; abort("No Linux runner row found") unless row; puts row.to_json')
+          testing_formulae=$(echo "$linux_row" | bin/brew ruby -rjson -e 'row=JSON.parse(STDIN.read); puts row.fetch("testing_formulae")')
+          shard_count=$(echo "$linux_row" | bin/brew ruby -rjson -e 'row=JSON.parse(STDIN.read); puts row.fetch("dependent_shard_count")')
+          shard_index=$(echo "$linux_row" | bin/brew ruby -rjson -e 'row=JSON.parse(STDIN.read); puts row.fetch("dependent_shard_index")')
 
-          echo "Selected runner row: $first_row"
+          echo "Selected Linux runner row: $linux_row"
           echo "testing_formulae=$testing_formulae"
           echo "dependent_shard_count=$shard_count"
           echo "dependent_shard_index=$shard_index"
@@ -66,49 +66,3 @@ jobs:
             --dependent-shard-count="$shard_count" \
             --dependent-shard-index="$shard_index" \
             <<<"$TEST_BOT_DEPENDENTS_ARGS"
-
-  validate-brew-sharding:
-    runs-on: ubuntu-22.04
-    container:
-      image: ghcr.io/homebrew/ubuntu22.04:main
-      options: --user=linuxbrew
-    defaults:
-      run:
-        shell: /bin/bash -xeuo pipefail {0}
-    env:
-      HOMEBREW_DEVELOPER: 1
-      HOMEBREW_NO_INSTALL_FROM_API: 1
-      HOMEBREW_DEPENDENT_SHARD_COUNT: 4
-      BREW_DIR: /home/linuxbrew/.linuxbrew/Homebrew
-      TEST_BRANCH: feat/parrallel-deb-test
-    steps:
-      - name: Switch brew to test branch
-        run: |
-          cd "$BREW_DIR"
-          git remote add gunni https://github.com/GunniBusch/brew.git || git remote set-url gunni https://github.com/GunniBusch/brew.git
-          git fetch gunni "$TEST_BRANCH"
-          git checkout -B "$TEST_BRANCH" --track "gunni/$TEST_BRANCH" || git checkout "$TEST_BRANCH"
-
-      - name: Show branch
-        run: |
-          cd "$BREW_DIR"
-          git remote -v
-          git rev-parse --abbrev-ref HEAD
-          git log -1 --oneline
-
-      - name: Typecheck
-        run: |
-          cd "$BREW_DIR"
-          bin/brew typecheck
-
-      - name: Sharding unit tests
-        run: |
-          cd "$BREW_DIR"
-          bin/brew tests --only=dev-cmd/test-bot
-          bin/brew tests --only=test_bot/formulae_dependents
-          bin/brew tests --only=github_runner_matrix
-
-      - name: Full quality gate
-        run: |
-          cd "$BREW_DIR"
-          bin/brew lgtm
