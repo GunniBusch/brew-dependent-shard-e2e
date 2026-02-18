@@ -63,7 +63,7 @@ jobs:
       fail-fast: false
     runs-on: ubuntu-22.04
     env:
-      TEST_BOT_DEPENDENTS_ARGS: --only-formulae-dependents --junit
+      TEST_BOT_DEPENDENTS_ARGS: --only-formulae-dependents
       TESTED_FORMULAE: openssl@3
       TESTING_FORMULAE: ${{ matrix.testing_formulae }}
       TEST_BRANCH: feat/parrallel-deb-test
