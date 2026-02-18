@@ -6,6 +6,9 @@ on:
 jobs:
   setup_dep_runners:
     runs-on: ubuntu-22.04
+    container:
+      image: ghcr.io/homebrew/ubuntu22.04:main
+      options: --user=linuxbrew
     outputs:
       runners: ${{ steps.filter-runners.outputs.runners }}
       runners_present: ${{ steps.filter-runners.outputs.runners_present }}
@@ -15,30 +18,27 @@ jobs:
       HOMEBREW_LINUX_RUNNER: ubuntu-latest
       HOMEBREW_MACOS_LONG_TIMEOUT: "false"
       GITHUB_RUN_ID: "12345"
+      BREW_DIR: /home/linuxbrew/.linuxbrew/Homebrew
+      TEST_BRANCH: feat/parrallel-deb-test
     steps:
-      - name: Set up Homebrew
-        uses: Homebrew/actions/setup-homebrew@main
-        with:
-          core: true
-          cask: false
-
       - name: Switch brew to test branch
         run: |
-          BREW_DIR="$(brew --repository)"
           cd "$BREW_DIR"
           git remote add gunni https://github.com/GunniBusch/brew.git || git remote set-url gunni https://github.com/GunniBusch/brew.git
-          git fetch gunni feat/parrallel-deb-test
-          git checkout -B feat/parrallel-deb-test --track gunni/feat/parrallel-deb-test || git checkout feat/parrallel-deb-test
+          git fetch gunni "$TEST_BRANCH"
+          git checkout -B "$TEST_BRANCH" --track "gunni/$TEST_BRANCH" || git checkout "$TEST_BRANCH"
 
       - name: Determine runners (core-like)
         id: determine-dependent-runners
-        run: brew determine-test-runners --dependents --eval-all "$TESTING_FORMULAE"
+        run: |
+          cd "$BREW_DIR"
+          bin/brew determine-test-runners --dependents --eval-all "$TESTING_FORMULAE"
 
       - name: Filter to Linux matrix rows only
         id: filter-runners
         run: |
           all_runners='${{ steps.determine-dependent-runners.outputs.runners }}'
-          linux_runners=$(echo "$all_runners" | ruby -rjson -e '
+          linux_runners=$(echo "$all_runners" | /home/linuxbrew/.linuxbrew/bin/brew ruby -rjson -e '
             rows = JSON.parse(STDIN.read)
             linux_rows = rows.select do |r|
               runner = r.fetch("runner")
@@ -61,28 +61,30 @@ jobs:
         include: ${{ fromJson(needs.setup_dep_runners.outputs.runners) }}
       fail-fast: false
     runs-on: ubuntu-22.04
+    container:
+      image: ghcr.io/homebrew/ubuntu22.04:main
+      options: --user=linuxbrew
+    defaults:
+      run:
+        shell: /bin/bash -xeuo pipefail {0}
     env:
       TEST_BOT_DEPENDENTS_ARGS: --only-formulae-dependents --junit
       TESTED_FORMULAE: openssl@3
       TESTING_FORMULAE: ${{ matrix.testing_formulae }}
+      BREW_DIR: /home/linuxbrew/.linuxbrew/Homebrew
+      TEST_BRANCH: feat/parrallel-deb-test
     steps:
-      - name: Set up Homebrew
-        uses: Homebrew/actions/setup-homebrew@main
-        with:
-          core: true
-          cask: false
-
       - name: Switch brew to test branch
         run: |
-          BREW_DIR="$(brew --repository)"
           cd "$BREW_DIR"
           git remote add gunni https://github.com/GunniBusch/brew.git || git remote set-url gunni https://github.com/GunniBusch/brew.git
-          git fetch gunni feat/parrallel-deb-test
-          git checkout -B feat/parrallel-deb-test --track gunni/feat/parrallel-deb-test || git checkout feat/parrallel-deb-test
+          git fetch gunni "$TEST_BRANCH"
+          git checkout -B "$TEST_BRANCH" --track "gunni/$TEST_BRANCH" || git checkout "$TEST_BRANCH"
 
       - name: Test dependents (core-like invocation + shard args)
         run: |
-          xargs -t brew test-bot \
+          cd "$BREW_DIR"
+          xargs -t bin/brew test-bot \
             --dry-run \
             --testing-formulae="$TESTING_FORMULAE" \
             --tested-formulae="$TESTED_FORMULAE" \
