@@ -21,7 +21,7 @@ jobs:
     steps:
       - name: Clone brew branch under test
         run: |
-          git clone --depth=1 --branch codex/dependent-shard-e2e https://github.com/GunniBusch/brew.git brew
+          git clone --depth=1 --branch feat/parrallel-deb-test https://github.com/GunniBusch/brew.git brew
 
       - name: Show branch
         run: |
