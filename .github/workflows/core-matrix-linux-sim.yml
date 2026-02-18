@@ -16,7 +16,7 @@ jobs:
       HOMEBREW_MACOS_LONG_TIMEOUT: "false"
       GITHUB_RUN_ID: "12345"
       TEST_BRANCH: feat/parrallel-deb-test
-      BREW_DIR: ${{ runner.temp }}/brew
+      BREW_DIR: /tmp/brew
     steps:
       - name: Clone brew branch
         run: git clone --depth=1 --branch "$TEST_BRANCH" https://github.com/GunniBusch/brew.git "$BREW_DIR"
@@ -64,7 +64,7 @@ jobs:
       TESTED_FORMULAE: openssl@3
       TESTING_FORMULAE: ${{ matrix.testing_formulae }}
       TEST_BRANCH: feat/parrallel-deb-test
-      BREW_DIR: ${{ runner.temp }}/brew
+      BREW_DIR: /tmp/brew
     steps:
       - name: Clone brew branch
         run: git clone --depth=1 --branch "$TEST_BRANCH" https://github.com/GunniBusch/brew.git "$BREW_DIR"
