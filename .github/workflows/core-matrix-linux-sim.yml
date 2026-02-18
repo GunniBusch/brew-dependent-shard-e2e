@@ -69,6 +69,8 @@ jobs:
         with:
           core: true
           cask: false
+        env:
+          GITHUB_REPOSITORY: GunniBusch/brew
 
       - name: Switch Homebrew/brew to fork branch
         run: |
@@ -137,6 +139,8 @@ jobs:
         with:
           core: true
           cask: false
+        env:
+          GITHUB_REPOSITORY: GunniBusch/brew
 
       - name: Switch Homebrew/brew to fork branch
         run: |
