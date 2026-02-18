@@ -74,7 +74,7 @@ jobs:
 
       - name: Switch Homebrew/brew to fork branch
         run: |
-          cd "${HOMEBREW_REPOSITORY:?}"
+          cd "/home/linuxbrew/.linuxbrew"
           git remote remove userfork || true
           git remote add userfork https://github.com/GunniBusch/brew.git
           git fetch --force --tags userfork "$TEST_BRANCH"
@@ -144,7 +144,7 @@ jobs:
 
       - name: Switch Homebrew/brew to fork branch
         run: |
-          cd "${HOMEBREW_REPOSITORY:?}"
+          cd "/home/linuxbrew/.linuxbrew"
           git remote remove userfork || true
           git remote add userfork https://github.com/GunniBusch/brew.git
           git fetch --force --tags userfork "$TEST_BRANCH"
