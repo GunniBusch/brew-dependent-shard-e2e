@@ -167,6 +167,12 @@ jobs:
           git fetch --force --tags userfork "$TEST_BRANCH"
           git checkout --force -B "$TEST_BRANCH" FETCH_HEAD
 
+      - name: Install testing formulae for dependent run
+        if: inputs.dry_run != 'true'
+        run: |
+          IFS=',' read -r -a formulae <<<"$TESTING_FORMULAE"
+          brew install --formula --build-from-source "${formulae[@]}"
+
       - name: Test dependents
         run: |
           mkdir -p "$BOTTLES_DIR"
