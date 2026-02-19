@@ -21,6 +21,8 @@ on:
         default: "false"
 
 env:
+  # Keep dry-run forced for fast/safe CI simulation; set to "false" later to re-enable real execution.
+  FORCE_DRY_RUN: "true"
   HOMEBREW_DEVELOPER: 1
   HOMEBREW_GITHUB_ACTIONS: 1
   HOMEBREW_NO_AUTO_UPDATE: 1
@@ -105,7 +107,7 @@ jobs:
         id: filter-runners
         run: |
           all_runners='${{ steps.determine-dependent-runners.outputs.runners }}'
-          linux_runners=$(echo "$all_runners" | ruby -rjson -e '
+          linux_runners=$(echo "$all_runners" | brew ruby -rjson -e '
             rows = JSON.parse(STDIN.read)
             linux_rows = rows.select do |r|
               runner = r.fetch("runner")
@@ -149,7 +151,7 @@ jobs:
       BOTTLES_DIR: ${{ matrix.workdir || github.workspace }}/bottles
       TESTING_FORMULAE: ${{ matrix.testing_formulae }}
       TEST_BRANCH: ${{ inputs.brew_ref }}
-      DRY_RUN: ${{ inputs.dry_run }}
+      DRY_RUN: ${{ env.FORCE_DRY_RUN == 'true' && 'true' || inputs.dry_run }}
     steps:
       - name: Set up Homebrew
         uses: Homebrew/actions/setup-homebrew@main
@@ -168,7 +170,7 @@ jobs:
           git checkout --force -B "$TEST_BRANCH" FETCH_HEAD
 
       - name: Download testing bottles for dependent run
-        if: inputs.dry_run != 'true'
+        if: env.FORCE_DRY_RUN != 'true' && inputs.dry_run != 'true'
         run: |
           mkdir -p "$BOTTLES_DIR"
           bottle_tag="$(brew ruby -e 'puts Utils::Bottles.tag')"
@@ -185,7 +187,7 @@ jobs:
           mkdir -p "$BOTTLES_DIR"
           cd "$BOTTLES_DIR"
           dry_run_args=()
-          if [[ "$DRY_RUN" == "true" ]]; then
+          if [[ "$FORCE_DRY_RUN" == "true" || "$DRY_RUN" == "true" ]]; then
             dry_run_args+=(--dry-run)
           fi
           start_epoch="$(date +%s)"
@@ -207,7 +209,7 @@ jobs:
         if: always()
         run: |
           cd "$BOTTLES_DIR"
-          ruby - <<'RUBY'
+          brew ruby - <<'RUBY'
             # frozen_string_literal: true
 
             log_path = "test-bot.log"
@@ -318,7 +320,7 @@ jobs:
             --tested-formulae="$TESTING_FORMULAE" \
             <<<"${{ needs.setup_dep_tests.outputs.test-bot-dependents-args }}" 2>&1 | tee baseline-test-bot.log
 
-          ruby - <<'RUBY'
+          brew ruby - <<'RUBY'
             # frozen_string_literal: true
 
             planned = []
@@ -353,8 +355,86 @@ jobs:
             baseline/baseline-planned-dependents.txt
           if-no-files-found: error
 
+  test_deps_core_compat_no_shard_args:
+    needs:
+      [tap_syntax, formulae_detect, setup_dep_tests, setup_dep_runners, tests]
+    if: >
+      (success() ||
+      (failure() &&
+       !fromJson(needs.setup_dep_tests.outputs.fail-fast) &&
+       !contains(fromJson('["skipped", "cancelled"]'), needs.tests.result))) &&
+      !fromJson(needs.setup_dep_tests.outputs.syntax-only) &&
+      fromJson(needs.setup_dep_tests.outputs.test-dependents) &&
+      fromJson(needs.setup_dep_runners.outputs.runners_present)
+    strategy:
+      matrix:
+        include: ${{ fromJson(needs.setup_dep_runners.outputs.runners) }}
+      fail-fast: ${{ fromJson(needs.setup_dep_tests.outputs.fail-fast) }}
+    name: ${{ matrix.name }} (deps core-compat)
+    runs-on: ${{ matrix.runner }}
+    container: ${{ matrix.container }}
+    timeout-minutes: ${{ matrix.timeout }}
+    defaults:
+      run:
+        shell: /bin/bash -xeuo pipefail {0}
+        working-directory: ${{ matrix.workdir || github.workspace }}
+    env:
+      GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      HOMEBREW_GITHUB_API_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      BOTTLES_DIR: ${{ matrix.workdir || github.workspace }}/bottles
+      TESTING_FORMULAE: ${{ matrix.testing_formulae }}
+      TEST_BRANCH: ${{ inputs.brew_ref }}
+      DRY_RUN: ${{ env.FORCE_DRY_RUN == 'true' && 'true' || inputs.dry_run }}
+    steps:
+      - name: Set up Homebrew
+        uses: Homebrew/actions/setup-homebrew@main
+        with:
+          core: true
+          cask: false
+        env:
+          GITHUB_REPOSITORY: GunniBusch/brew
+
+      - name: Switch Homebrew/brew to fork branch
+        run: |
+          cd "/home/linuxbrew/.linuxbrew/Homebrew"
+          git remote remove userfork || true
+          git remote add userfork https://github.com/GunniBusch/brew.git
+          git fetch --force --tags userfork "$TEST_BRANCH"
+          git checkout --force -B "$TEST_BRANCH" FETCH_HEAD
+
+      - name: Download testing bottles for dependent run
+        if: env.FORCE_DRY_RUN != 'true' && inputs.dry_run != 'true'
+        run: |
+          mkdir -p "$BOTTLES_DIR"
+          bottle_tag="$(brew ruby -e 'puts Utils::Bottles.tag')"
+          IFS=',' read -r -a formulae <<<"$TESTING_FORMULAE"
+          for formula in "${formulae[@]}"; do
+            brew fetch --force-bottle --formula "$formula"
+            bottle_path="$(brew --cache --bottle-tag="$bottle_tag" "$formula")"
+            bottle_filename="$(basename "$bottle_path" | sed -E 's/^[0-9a-f]{64}--//')"
+            cp -fv "$bottle_path" "$BOTTLES_DIR/$bottle_filename"
+          done
+
+      - name: Test dependents (core-compat no shard args)
+        run: |
+          mkdir -p "$BOTTLES_DIR"
+          cd "$BOTTLES_DIR"
+          dry_run_args=()
+          if [[ "$FORCE_DRY_RUN" == "true" || "$DRY_RUN" == "true" ]]; then
+            dry_run_args+=(--dry-run)
+          fi
+          xargs -t brew test-bot \
+            "${dry_run_args[@]}" \
+            --testing-formulae="$TESTING_FORMULAE" \
+            --tested-formulae="$TESTED_FORMULAE" \
+            <<<"$TEST_BOT_DEPENDENTS_ARGS"
+        env:
+          HOMEBREW_DOWNLOAD_CONCURRENCY: ${{ needs.setup_dep_tests.outputs.download-concurrency }}
+          TEST_BOT_DEPENDENTS_ARGS: ${{ needs.setup_dep_tests.outputs.test-bot-dependents-args }}
+          TESTED_FORMULAE: ${{ needs.formulae_detect.outputs.testing_formulae }}
+
   conclusion:
-    needs: [test_deps, baseline_dependents, setup_dep_runners]
+    needs: [test_deps, baseline_dependents, test_deps_core_compat_no_shard_args, setup_dep_runners]
     if: >
       always() &&
       fromJson(needs.setup_dep_runners.outputs.runners_present)
