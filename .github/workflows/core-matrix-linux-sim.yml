@@ -176,7 +176,8 @@ jobs:
           for formula in "${formulae[@]}"; do
             brew fetch --force-bottle --formula "$formula"
             bottle_path="$(brew --cache --bottle-tag="$bottle_tag" "$formula")"
-            cp -fv "$bottle_path" "$BOTTLES_DIR/"
+            bottle_filename="$(basename "$bottle_path" | sed -E 's/^[0-9a-f]{64}--//')"
+            cp -fv "$bottle_path" "$BOTTLES_DIR/$bottle_filename"
           done
 
       - name: Test dependents
