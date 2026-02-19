@@ -187,14 +187,284 @@ jobs:
           if [[ "$DRY_RUN" == "true" ]]; then
             dry_run_args+=(--dry-run)
           fi
+          start_epoch="$(date +%s)"
           xargs -t brew test-bot \
             "${dry_run_args[@]}" \
             --testing-formulae="$TESTING_FORMULAE" \
             --tested-formulae="$TESTED_FORMULAE" \
             --dependent-shard-count="${{ matrix.dependent_shard_count }}" \
             --dependent-shard-index="${{ matrix.dependent_shard_index }}" \
-            <<<"$TEST_BOT_DEPENDENTS_ARGS"
+            <<<"$TEST_BOT_DEPENDENTS_ARGS" 2>&1 | tee test-bot.log
+          end_epoch="$(date +%s)"
+          echo "$((end_epoch - start_epoch))" > shard-duration-seconds.txt
         env:
           HOMEBREW_DOWNLOAD_CONCURRENCY: ${{ needs.setup_dep_tests.outputs.download-concurrency }}
           TEST_BOT_DEPENDENTS_ARGS: ${{ needs.setup_dep_tests.outputs.test-bot-dependents-args }}
           TESTED_FORMULAE: ${{ needs.formulae_detect.outputs.testing_formulae }}
+
+      - name: Extract shard report
+        if: always()
+        run: |
+          cd "$BOTTLES_DIR"
+          ruby - <<'RUBY'
+            # frozen_string_literal: true
+
+            log_path = "test-bot.log"
+            planned = []
+            if File.exist?(log_path)
+              section = nil
+              File.foreach(log_path) do |line|
+                case line
+                when /^==> Source dependents:/
+                  section = :source
+                when /^==> Bottled dependents:/
+                  section = :bottled
+                when /^==> /
+                  section = nil
+                else
+                  next if section.nil?
+
+                  value = line.strip
+                  next if value.empty?
+
+                  planned << value
+                end
+              end
+            end
+
+            tested = Dir.glob("tested-dependents-*.txt").flat_map do |path|
+              File.readlines(path, chomp: true)
+            end
+
+            File.write("shard-planned-dependents.txt", planned.uniq.sort.join("\n"))
+            File.write("shard-tested-dependents.txt", tested.map(&:strip).reject(&:empty?).uniq.sort.join("\n"))
+          RUBY
+
+          {
+            echo "name=${{ matrix.name }}"
+            echo "runner=${{ matrix.runner }}"
+            echo "shard_index=${{ matrix.dependent_shard_index }}"
+            echo "shard_count=${{ matrix.dependent_shard_count }}"
+            if [[ -f shard-duration-seconds.txt ]]; then
+              echo "duration_seconds=$(cat shard-duration-seconds.txt)"
+            else
+              echo "duration_seconds=0"
+            fi
+            if [[ -f shard-planned-dependents.txt ]]; then
+              echo "planned_count=$(wc -l < shard-planned-dependents.txt | tr -d ' ')"
+            else
+              echo "planned_count=0"
+            fi
+            if [[ -f shard-tested-dependents.txt ]]; then
+              echo "tested_count=$(wc -l < shard-tested-dependents.txt | tr -d ' ')"
+            else
+              echo "tested_count=0"
+            fi
+          } > shard-stats.txt
+
+      - name: Upload shard report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: dependent-shard-${{ matrix.runner }}-${{ matrix.dependent_shard_index }}-of-${{ matrix.dependent_shard_count }}
+          if-no-files-found: warn
+          path: |
+            ${{ env.BOTTLES_DIR }}/test-bot.log
+            ${{ env.BOTTLES_DIR }}/shard-duration-seconds.txt
+            ${{ env.BOTTLES_DIR }}/shard-planned-dependents.txt
+            ${{ env.BOTTLES_DIR }}/shard-tested-dependents.txt
+            ${{ env.BOTTLES_DIR }}/shard-stats.txt
+
+  baseline_dependents:
+    needs: [formulae_detect, setup_dep_tests, setup_dep_runners]
+    if: >
+      !fromJson(needs.setup_dep_tests.outputs.syntax-only) &&
+      fromJson(needs.setup_dep_tests.outputs.test-dependents) &&
+      fromJson(needs.setup_dep_runners.outputs.runners_present)
+    runs-on: ubuntu-latest
+    container:
+      image: ghcr.io/homebrew/ubuntu22.04:main
+    defaults:
+      run:
+        shell: /bin/bash -xeuo pipefail {0}
+    env:
+      TESTING_FORMULAE: ${{ needs.formulae_detect.outputs.testing_formulae }}
+      TEST_BRANCH: ${{ inputs.brew_ref }}
+    steps:
+      - name: Set up Homebrew
+        uses: Homebrew/actions/setup-homebrew@main
+        with:
+          core: true
+          cask: false
+        env:
+          GITHUB_REPOSITORY: GunniBusch/brew
+
+      - name: Switch Homebrew/brew to fork branch
+        run: |
+          cd "/home/linuxbrew/.linuxbrew/Homebrew"
+          git remote remove userfork || true
+          git remote add userfork https://github.com/GunniBusch/brew.git
+          git fetch --force --tags userfork "$TEST_BRANCH"
+          git checkout --force -B "$TEST_BRANCH" FETCH_HEAD
+
+      - name: Compute baseline dependent set
+        run: |
+          mkdir -p baseline
+          cd baseline
+          xargs -t brew test-bot \
+            --dry-run \
+            --testing-formulae="$TESTING_FORMULAE" \
+            --tested-formulae="$TESTING_FORMULAE" \
+            <<<"${{ needs.setup_dep_tests.outputs.test-bot-dependents-args }}" 2>&1 | tee baseline-test-bot.log
+
+          ruby - <<'RUBY'
+            # frozen_string_literal: true
+
+            planned = []
+            section = nil
+            File.foreach("baseline-test-bot.log") do |line|
+              case line
+              when /^==> Source dependents:/
+                section = :source
+              when /^==> Bottled dependents:/
+                section = :bottled
+              when /^==> /
+                section = nil
+              else
+                next if section.nil?
+
+                value = line.strip
+                next if value.empty?
+
+                planned << value
+              end
+            end
+
+            File.write("baseline-planned-dependents.txt", planned.uniq.sort.join("\n"))
+          RUBY
+
+      - name: Upload baseline report
+        uses: actions/upload-artifact@v4
+        with:
+          name: dependent-baseline
+          path: |
+            baseline/baseline-test-bot.log
+            baseline/baseline-planned-dependents.txt
+          if-no-files-found: error
+
+  conclusion:
+    needs: [test_deps, baseline_dependents, setup_dep_runners]
+    if: >
+      always() &&
+      fromJson(needs.setup_dep_runners.outputs.runners_present)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download baseline report
+        uses: actions/download-artifact@v4
+        with:
+          name: dependent-baseline
+          path: baseline
+
+      - name: Download shard reports
+        uses: actions/download-artifact@v4
+        with:
+          path: shard-reports
+          pattern: dependent-shard-*
+
+      - name: Validate dependent coverage
+        run: |
+          ruby - <<'RUBY'
+            # frozen_string_literal: true
+
+            require "set"
+
+            def read_set(path)
+              return Set.new unless File.exist?(path)
+
+              Set.new(File.readlines(path, chomp: true).map(&:strip).reject(&:empty?))
+            end
+
+            expected = read_set("baseline/baseline-planned-dependents.txt")
+
+            planned_by_shard = {}
+            tested_by_shard = {}
+            stats = {}
+
+            Dir.glob("shard-reports/**/shard-planned-dependents.txt").sort.each do |path|
+              shard_key = File.basename(File.dirname(path))
+              planned_by_shard[shard_key] = read_set(path)
+            end
+
+            Dir.glob("shard-reports/**/shard-tested-dependents.txt").sort.each do |path|
+              shard_key = File.basename(File.dirname(path))
+              tested_by_shard[shard_key] = read_set(path)
+            end
+
+            Dir.glob("shard-reports/**/shard-stats.txt").sort.each do |path|
+              shard_key = File.basename(File.dirname(path))
+              stats[shard_key] = File.readlines(path, chomp: true).filter_map do |line|
+                next unless line.include?("=")
+
+                key, value = line.split("=", 2)
+                [key, value]
+              end.to_h
+            end
+
+            planned_union = planned_by_shard.values.reduce(Set.new, :|)
+            tested_union = tested_by_shard.values.reduce(Set.new, :|)
+
+            planned_dupes = Hash.new(0)
+            planned_by_shard.each_value do |set|
+              set.each { |name| planned_dupes[name] += 1 }
+            end
+            duplicate_planned = planned_dupes.select { |_, count| count > 1 }.keys.sort
+
+            missing_planned = (expected - planned_union).to_a.sort
+            missing_tested = (expected - tested_union).to_a.sort
+            unexpected_tested = (tested_union - expected).to_a.sort
+
+            summary_path = ENV.fetch("GITHUB_STEP_SUMMARY", nil)
+            if summary_path
+              File.open(summary_path, "a") do |f|
+                f.puts "## Dependent shard coverage"
+                f.puts
+                f.puts "- expected dependents: #{expected.size}"
+                f.puts "- planned union across shards: #{planned_union.size}"
+                f.puts "- tested union across shards: #{tested_union.size}"
+                f.puts "- duplicate planned dependents: #{duplicate_planned.size}"
+                f.puts
+                f.puts "## Shard stats"
+                stats.sort.each do |shard, data|
+                  f.puts "- #{data["name"] || shard}: shard #{data["shard_index"]}/#{data["shard_count"]}, planned=#{data["planned_count"]}, tested=#{data["tested_count"]}, duration=#{data["duration_seconds"]}s"
+                end
+              end
+            end
+
+            puts "expected=#{expected.size}"
+            puts "planned_union=#{planned_union.size}"
+            puts "tested_union=#{tested_union.size}"
+            puts "duplicate_planned=#{duplicate_planned.size}"
+            puts "missing_planned=#{missing_planned.size}"
+            puts "missing_tested=#{missing_tested.size}"
+            puts "unexpected_tested=#{unexpected_tested.size}"
+
+            unless duplicate_planned.empty?
+              warn "Duplicate planned dependents across shards: #{duplicate_planned.first(20).join(", ")}"
+            end
+            unless missing_planned.empty?
+              warn "Dependents missing from shard planning: #{missing_planned.first(20).join(", ")}"
+            end
+            unless missing_tested.empty?
+              warn "Dependents not tested by shard runs: #{missing_tested.first(20).join(", ")}"
+            end
+            unless unexpected_tested.empty?
+              warn "Unexpected tested dependents not in baseline: #{unexpected_tested.first(20).join(", ")}"
+            end
+
+            if duplicate_planned.empty? && missing_planned.empty? && missing_tested.empty? && unexpected_tested.empty?
+              puts "Dependent coverage validation passed."
+              exit 0
+            end
+
+            abort "Dependent coverage validation failed."
+          RUBY
