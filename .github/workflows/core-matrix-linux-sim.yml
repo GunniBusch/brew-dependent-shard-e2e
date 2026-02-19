@@ -27,10 +27,13 @@ on:
         description: Use --dry-run for brew test-bot
         required: false
         default: "false"
+      force_dry_run:
+        description: Force dry-run mode regardless of dry_run input
+        required: false
+        default: "true"
 
 env:
-  # Keep dry-run forced for fast/safe CI simulation; set to "false" later to re-enable real execution.
-  FORCE_DRY_RUN: "true"
+  FORCE_DRY_RUN: ${{ inputs.force_dry_run }}
   HOMEBREW_DEVELOPER: 1
   HOMEBREW_GITHUB_ACTIONS: 1
   HOMEBREW_NO_AUTO_UPDATE: 1
@@ -326,7 +329,6 @@ jobs:
         shell: /bin/bash -xeuo pipefail {0}
     env:
       TESTING_FORMULAE: ${{ needs.formulae_detect.outputs.testing_formulae }}
-      TEST_BRANCH: ${{ inputs.brew_ref }}
     steps:
       - name: Set up Homebrew
         uses: Homebrew/actions/setup-homebrew@main
@@ -336,13 +338,11 @@ jobs:
         env:
           GITHUB_REPOSITORY: GunniBusch/brew
 
-      - name: Switch Homebrew/brew to fork branch
+      - name: Use stable Homebrew/brew for baseline expectation
         run: |
           cd "/home/linuxbrew/.linuxbrew/Homebrew"
-          git remote remove userfork || true
-          git remote add userfork https://github.com/GunniBusch/brew.git
-          git fetch --force --tags userfork "$TEST_BRANCH"
-          git checkout --force -B "$TEST_BRANCH" FETCH_HEAD
+          git fetch --force --tags origin main
+          git checkout --force origin/main
 
       - name: Compute baseline dependent set
         run: |
