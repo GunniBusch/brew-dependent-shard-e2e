@@ -167,11 +167,17 @@ jobs:
           git fetch --force --tags userfork "$TEST_BRANCH"
           git checkout --force -B "$TEST_BRANCH" FETCH_HEAD
 
-      - name: Install testing formulae for dependent run
+      - name: Download testing bottles for dependent run
         if: inputs.dry_run != 'true'
         run: |
+          mkdir -p "$BOTTLES_DIR"
+          bottle_tag="$(brew ruby -e 'puts Utils::Bottles.tag')"
           IFS=',' read -r -a formulae <<<"$TESTING_FORMULAE"
-          brew install --formula --build-from-source "${formulae[@]}"
+          for formula in "${formulae[@]}"; do
+            brew fetch --force-bottle --formula "$formula"
+            bottle_path="$(brew --cache --bottle-tag="$bottle_tag" "$formula")"
+            cp -fv "$bottle_path" "$BOTTLES_DIR/"
+          done
 
       - name: Test dependents
         run: |
