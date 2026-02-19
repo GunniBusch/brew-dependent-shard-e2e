@@ -11,10 +11,18 @@ on:
         description: Brew branch/tag/sha to test
         required: false
         default: feat/parrallel-deb-test
-      dependent_shard_count:
-        description: HOMEBREW_DEPENDENT_SHARD_COUNT
+      dependent_shard_max_runners:
+        description: Maximum dependent shards per runner
         required: false
         default: "4"
+      dependent_shard_min_dependents_per_runner:
+        description: Minimum dependents per shard
+        required: false
+        default: "200"
+      dependent_shard_runner_load_factor:
+        description: Minimum shard load ratio (0,1]
+        required: false
+        default: "0.6"
       dry_run:
         description: Use --dry-run for brew test-bot
         required: false
@@ -78,9 +86,11 @@ jobs:
     env:
       HOMEBREW_LINUX_RUNNER: ${{ needs.setup_dep_tests.outputs.linux-runner }}
       HOMEBREW_MACOS_LONG_TIMEOUT: ${{ needs.setup_dep_tests.outputs.long-timeout }}
-      HOMEBREW_DEPENDENT_SHARD_COUNT: ${{ inputs.dependent_shard_count }}
       TESTING_FORMULAE: ${{ needs.formulae_detect.outputs.testing_formulae }}
       TEST_BRANCH: ${{ inputs.brew_ref }}
+      DEPENDENT_SHARD_MAX_RUNNERS: ${{ inputs.dependent_shard_max_runners }}
+      DEPENDENT_SHARD_MIN_DEPENDENTS_PER_RUNNER: ${{ inputs.dependent_shard_min_dependents_per_runner }}
+      DEPENDENT_SHARD_RUNNER_LOAD_FACTOR: ${{ inputs.dependent_shard_runner_load_factor }}
     steps:
       - name: Set up Homebrew
         uses: Homebrew/actions/setup-homebrew@main
@@ -101,7 +111,13 @@ jobs:
       - name: Determine runners to use for test_deps job
         id: determine-dependent-runners
         run: |
-          brew determine-test-runners --dependents --eval-all "$TESTING_FORMULAE"
+          brew determine-test-runners \
+            --dependents \
+            --eval-all \
+            --dependent-shard-max-runners="$DEPENDENT_SHARD_MAX_RUNNERS" \
+            --dependent-shard-min-dependents-per-runner="$DEPENDENT_SHARD_MIN_DEPENDENTS_PER_RUNNER" \
+            --dependent-shard-runner-load-factor="$DEPENDENT_SHARD_RUNNER_LOAD_FACTOR" \
+            "$TESTING_FORMULAE"
 
       - name: Filter to Linux matrix rows only
         id: filter-runners
@@ -109,10 +125,8 @@ jobs:
           all_runners='${{ steps.determine-dependent-runners.outputs.runners }}'
           linux_runners=$(echo "$all_runners" | brew ruby -rjson -e '
             rows = JSON.parse(STDIN.read)
-            linux_rows = rows.select do |r|
-              runner = r.fetch("runner")
-              runner.start_with?("ubuntu") || runner.include?("linux")
-            end
+            # Keep a single Linux runner type for deterministic sharding validation.
+            linux_rows = rows.select { |r| r.fetch("runner") == "ubuntu-latest" }
             puts linux_rows.to_json
           ')
           echo "runners=$linux_runners" >> "$GITHUB_OUTPUT"
@@ -213,11 +227,15 @@ jobs:
             # frozen_string_literal: true
 
             log_path = "test-bot.log"
+            ansi_re = /\e\[[0-9;]*m/
             planned = []
+            tested_from_log = []
             if File.exist?(log_path)
               section = nil
               File.foreach(log_path) do |line|
-                case line
+                clean = line.gsub(ansi_re, "")
+
+                case clean
                 when /^==> Source dependents:/
                   section = :source
                 when /^==> Bottled dependents:/
@@ -227,17 +245,25 @@ jobs:
                 else
                   next if section.nil?
 
-                  value = line.strip
+                  value = clean.strip
                   next if value.empty?
 
                   planned << value
                 end
+
+                next if (match = clean.match(/brew install ([^\s]+)\s*$/)).nil?
+
+                formula = match[1]
+                next if formula.start_with?("--")
+
+                tested_from_log << formula
               end
             end
 
             tested = Dir.glob("tested-dependents-*.txt").flat_map do |path|
               File.readlines(path, chomp: true)
             end
+            tested = tested_from_log if tested.empty?
 
             File.write("shard-planned-dependents.txt", planned.uniq.sort.join("\n"))
             File.write("shard-tested-dependents.txt", tested.map(&:strip).reject(&:empty?).uniq.sort.join("\n"))
@@ -323,10 +349,13 @@ jobs:
           brew ruby - <<'RUBY'
             # frozen_string_literal: true
 
+            ansi_re = /\e\[[0-9;]*m/
             planned = []
             section = nil
             File.foreach("baseline-test-bot.log") do |line|
-              case line
+              clean = line.gsub(ansi_re, "")
+
+              case clean
               when /^==> Source dependents:/
                 section = :source
               when /^==> Bottled dependents:/
@@ -336,7 +365,7 @@ jobs:
               else
                 next if section.nil?
 
-                value = line.strip
+                value = clean.strip
                 next if value.empty?
 
                 planned << value
@@ -493,6 +522,8 @@ jobs:
 
             planned_union = planned_by_shard.values.reduce(Set.new, :|)
             tested_union = tested_by_shard.values.reduce(Set.new, :|)
+            shard_count_values = stats.values.filter_map { |data| Integer(data["shard_count"], exception: false) }
+            multi_shard = shard_count_values.any? { |value| value > 1 }
 
             planned_dupes = Hash.new(0)
             planned_by_shard.each_value do |set|
@@ -503,6 +534,7 @@ jobs:
             missing_planned = (expected - planned_union).to_a.sort
             missing_tested = (expected - tested_union).to_a.sort
             unexpected_tested = (tested_union - expected).to_a.sort
+            expected_empty = expected.empty?
 
             summary_path = ENV.fetch("GITHUB_STEP_SUMMARY", nil)
             if summary_path
@@ -513,6 +545,7 @@ jobs:
                 f.puts "- planned union across shards: #{planned_union.size}"
                 f.puts "- tested union across shards: #{tested_union.size}"
                 f.puts "- duplicate planned dependents: #{duplicate_planned.size}"
+                f.puts "- multi-shard active: #{multi_shard}"
                 f.puts
                 f.puts "## Shard stats"
                 stats.sort.each do |shard, data|
@@ -528,6 +561,7 @@ jobs:
             puts "missing_planned=#{missing_planned.size}"
             puts "missing_tested=#{missing_tested.size}"
             puts "unexpected_tested=#{unexpected_tested.size}"
+            puts "multi_shard=#{multi_shard}"
 
             unless duplicate_planned.empty?
               warn "Duplicate planned dependents across shards: #{duplicate_planned.first(20).join(", ")}"
@@ -541,8 +575,10 @@ jobs:
             unless unexpected_tested.empty?
               warn "Unexpected tested dependents not in baseline: #{unexpected_tested.first(20).join(", ")}"
             end
+            warn "Baseline expected set is empty; log parsing likely failed." if expected_empty
+            warn "Multi-shard matrix was not used." unless multi_shard
 
-            if duplicate_planned.empty? && missing_planned.empty? && missing_tested.empty? && unexpected_tested.empty?
+            if !expected_empty && multi_shard && duplicate_planned.empty? && missing_planned.empty? && missing_tested.empty? && unexpected_tested.empty?
               puts "Dependent coverage validation passed."
               exit 0
             end
