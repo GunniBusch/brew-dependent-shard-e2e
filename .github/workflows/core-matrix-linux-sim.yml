@@ -257,12 +257,14 @@ jobs:
                   planned << value
                 end
 
-                next if (match = clean.match(/brew install ([^\s]+)\s*$/)).nil?
+                if (match = clean.match(/brew install ([^\s]+)\s*$/))
+                  formula = match[1]
+                  next if formula.start_with?("--")
 
-                formula = match[1]
-                next if formula.start_with?("--")
-
-                tested_from_log << formula
+                  tested_from_log << formula
+                elsif (match = clean.match(/SKIPPED\s+([^\s]+)/))
+                  tested_from_log << match[1]
+                end
               end
             end
 
