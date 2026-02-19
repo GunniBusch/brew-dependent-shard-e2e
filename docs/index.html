@@ -1,0 +1,111 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Homebrew Dependent Shard Simulator</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Sora:wght@400;600;700;800&family=Space+Mono:wght@400;700&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <div class="bg-grid" aria-hidden="true"></div>
+    <main class="app-shell">
+      <header class="hero">
+        <p class="eyebrow">Homebrew CI Simulator</p>
+        <h1>Dependent Sharding Visualizer</h1>
+        <p class="subtitle">
+          Pick a formula, inspect its dependents, and simulate how sharding + matrix flags change job layout and
+          duplicate work.
+        </p>
+      </header>
+
+      <section class="panel controls">
+        <h2>Inputs</h2>
+        <div class="control-grid">
+          <label>
+            <span>Formula</span>
+            <input id="formula-input" list="formula-suggestions" type="text" placeholder="openssl@3" autocomplete="off" />
+            <datalist id="formula-suggestions"></datalist>
+          </label>
+
+          <label>
+            <span>Runner Tag</span>
+            <select id="runner-tag">
+              <option value="x86_64_linux">x86_64_linux</option>
+              <option value="arm64_linux">arm64_linux</option>
+              <option value="all">all tags</option>
+            </select>
+          </label>
+
+          <label>
+            <span>Max Runners</span>
+            <input id="max-runners" type="number" min="1" step="1" value="4" />
+          </label>
+
+          <label>
+            <span>Min Dependents / Runner</span>
+            <input id="min-per-runner" type="number" min="1" step="1" value="200" />
+          </label>
+
+          <label class="toggle">
+            <input id="recursive-toggle" type="checkbox" checked />
+            <span>Recursive dependent discovery</span>
+          </label>
+
+          <label class="toggle">
+            <input id="build-toggle" type="checkbox" checked />
+            <span>Include build dependency edges</span>
+          </label>
+
+          <label class="toggle">
+            <input id="test-toggle" type="checkbox" checked />
+            <span>Include test dependency edges</span>
+          </label>
+
+          <label class="toggle">
+            <input id="core-compat-toggle" type="checkbox" />
+            <span>Simulate core workflow without shard args</span>
+          </label>
+        </div>
+
+        <div class="action-row">
+          <button id="simulate-btn" type="button">Simulate</button>
+          <span id="status-pill" class="status-pill">Loading graph…</span>
+        </div>
+      </section>
+
+      <section class="stats" id="stats"></section>
+
+      <section class="panel" id="flags-explainer">
+        <h2>Flag Effects</h2>
+        <div id="flags-summary" class="mono"></div>
+      </section>
+
+      <section class="panel">
+        <h2>Shard Distribution</h2>
+        <div id="shard-grid" class="shard-grid"></div>
+      </section>
+
+      <section class="panel">
+        <h2>Dependents</h2>
+        <div class="list-wrap">
+          <div>
+            <h3>Candidate Dependents</h3>
+            <ul id="dependents-list" class="mono list"></ul>
+          </div>
+          <div>
+            <h3>Unassigned / Filtered</h3>
+            <ul id="filtered-list" class="mono list"></ul>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <script src="./app.js" type="module"></script>
+  </body>
+</html>
