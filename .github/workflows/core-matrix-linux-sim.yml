@@ -82,6 +82,7 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       runners: ${{ steps.filter-runners.outputs.runners }}
+      core_compat_runners: ${{ steps.filter-runners.outputs.core_compat_runners }}
       runners_present: ${{ steps.filter-runners.outputs.runners_present }}
     env:
       HOMEBREW_LINUX_RUNNER: ${{ needs.setup_dep_tests.outputs.linux-runner }}
@@ -129,7 +130,12 @@ jobs:
             linux_rows = rows.select { |r| r.fetch("runner") == "ubuntu-latest" }
             puts linux_rows.to_json
           ')
+          core_compat_runners=$(echo "$linux_runners" | brew ruby -rjson -e '
+            rows = JSON.parse(STDIN.read)
+            puts rows.select { |r| r.fetch("dependent_shard_index") == 1 }.to_json
+          ')
           echo "runners=$linux_runners" >> "$GITHUB_OUTPUT"
+          echo "core_compat_runners=$core_compat_runners" >> "$GITHUB_OUTPUT"
           if [[ "$linux_runners" == "[]" ]]; then
             echo "runners_present=false" >> "$GITHUB_OUTPUT"
           else
@@ -394,11 +400,10 @@ jobs:
        !contains(fromJson('["skipped", "cancelled"]'), needs.tests.result))) &&
       !fromJson(needs.setup_dep_tests.outputs.syntax-only) &&
       fromJson(needs.setup_dep_tests.outputs.test-dependents) &&
-      fromJson(needs.setup_dep_runners.outputs.runners_present) &&
-      matrix.dependent_shard_index == 1
+      fromJson(needs.setup_dep_runners.outputs.runners_present)
     strategy:
       matrix:
-        include: ${{ fromJson(needs.setup_dep_runners.outputs.runners) }}
+        include: ${{ fromJson(needs.setup_dep_runners.outputs.core_compat_runners) }}
       fail-fast: ${{ fromJson(needs.setup_dep_tests.outputs.fail-fast) }}
     name: ${{ matrix.name }} (deps core-compat)
     runs-on: ${{ matrix.runner }}
