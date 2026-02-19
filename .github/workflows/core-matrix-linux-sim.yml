@@ -16,6 +16,18 @@ on:
         required: false
         default: "4"
 
+env:
+  HOMEBREW_DEVELOPER: 1
+  HOMEBREW_GITHUB_ACTIONS: 1
+  HOMEBREW_NO_AUTO_UPDATE: 1
+  HOMEBREW_NO_INSTALL_FROM_API: 1
+  HOMEBREW_TEST_BOT_ANALYTICS: 0
+  HOMEBREW_ENFORCE_SBOM: 1
+  HOMEBREW_NO_BUILD_ERROR_ISSUES: 1
+  GH_REPO: ${{github.repository}}
+  GH_NO_UPDATE_NOTIFIER: 1
+  GH_PROMPT_DISABLED: 1
+  
 jobs:
   tap_syntax:
     runs-on: ubuntu-latest
