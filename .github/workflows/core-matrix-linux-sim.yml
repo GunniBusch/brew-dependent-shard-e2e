@@ -151,7 +151,7 @@ jobs:
       BOTTLES_DIR: ${{ matrix.workdir || github.workspace }}/bottles
       TESTING_FORMULAE: ${{ matrix.testing_formulae }}
       TEST_BRANCH: ${{ inputs.brew_ref }}
-      DRY_RUN: ${{ env.FORCE_DRY_RUN == 'true' && 'true' || inputs.dry_run }}
+      DRY_RUN: ${{ inputs.dry_run }}
     steps:
       - name: Set up Homebrew
         uses: Homebrew/actions/setup-homebrew@main
@@ -384,7 +384,7 @@ jobs:
       BOTTLES_DIR: ${{ matrix.workdir || github.workspace }}/bottles
       TESTING_FORMULAE: ${{ matrix.testing_formulae }}
       TEST_BRANCH: ${{ inputs.brew_ref }}
-      DRY_RUN: ${{ env.FORCE_DRY_RUN == 'true' && 'true' || inputs.dry_run }}
+      DRY_RUN: ${{ inputs.dry_run }}
     steps:
       - name: Set up Homebrew
         uses: Homebrew/actions/setup-homebrew@main
