@@ -394,7 +394,8 @@ jobs:
        !contains(fromJson('["skipped", "cancelled"]'), needs.tests.result))) &&
       !fromJson(needs.setup_dep_tests.outputs.syntax-only) &&
       fromJson(needs.setup_dep_tests.outputs.test-dependents) &&
-      fromJson(needs.setup_dep_runners.outputs.runners_present)
+      fromJson(needs.setup_dep_runners.outputs.runners_present) &&
+      matrix.dependent_shard_index == 1
     strategy:
       matrix:
         include: ${{ fromJson(needs.setup_dep_runners.outputs.runners) }}
