@@ -59,7 +59,9 @@ jobs:
           echo "dependent_shard_index=$shard_index"
 
           # Simulate the same invocation style used in homebrew-core test_deps.
-          xargs -t bin/brew test-bot \
+          test_bot_workdir=$(mktemp -d)
+          cd "$test_bot_workdir"
+          xargs -t "$BREW_DIR/bin/brew" test-bot \
             --dry-run \
             --testing-formulae="$testing_formulae" \
             --tested-formulae="$TESTING_FORMULAE" \
