@@ -50,8 +50,8 @@ jobs:
 
           linux_row=$(echo "$runners_json" | bin/brew ruby -rjson -e 'rows=JSON.parse(STDIN.read); row=rows.find{|r| r.fetch("runner").start_with?("ubuntu")}; abort("No Linux runner row found") unless row; puts row.to_json')
           testing_formulae=$(echo "$linux_row" | bin/brew ruby -rjson -e 'row=JSON.parse(STDIN.read); puts row.fetch("testing_formulae")')
-          shard_count=$(echo "$linux_row" | bin/brew ruby -rjson -e 'row=JSON.parse(STDIN.read); puts row.fetch("dependent_shard_count")')
-          shard_index=$(echo "$linux_row" | bin/brew ruby -rjson -e 'row=JSON.parse(STDIN.read); puts row.fetch("dependent_shard_index")')
+          shard_count=$(echo "$linux_row" | bin/brew ruby -rjson -e 'row=JSON.parse(STDIN.read); puts(row["dependent_shard_count"] || row.fetch("shard_count"))')
+          shard_index=$(echo "$linux_row" | bin/brew ruby -rjson -e 'row=JSON.parse(STDIN.read); puts(row["dependent_shard_index"] || row.fetch("shard_index"))')
 
           echo "Selected Linux runner row: $linux_row"
           echo "testing_formulae=$testing_formulae"

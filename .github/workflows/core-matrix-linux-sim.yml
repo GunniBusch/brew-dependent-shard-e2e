@@ -130,7 +130,14 @@ jobs:
           linux_runners=$(echo "$all_runners" | brew ruby -rjson -e '
             rows = JSON.parse(STDIN.read)
             # Keep a single Linux runner type for deterministic sharding validation.
-            linux_rows = rows.select { |r| r.fetch("runner") == "ubuntu-latest" }
+            linux_rows = rows.select { |r| r.fetch("runner") == "ubuntu-latest" }.map do |row|
+              shard_count = row["dependent_shard_count"] || row["shard_count"] || 1
+              shard_index = row["dependent_shard_index"] || row["shard_index"] || 1
+              row.merge(
+                "dependent_shard_count" => shard_count,
+                "dependent_shard_index" => shard_index,
+              )
+            end
             puts linux_rows.to_json
           ')
           core_compat_runners=$(echo "$linux_runners" | brew ruby -rjson -e '
