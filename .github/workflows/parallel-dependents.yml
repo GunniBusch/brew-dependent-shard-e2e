@@ -1,0 +1,120 @@
+name: Parallel Dependents
+
+on:
+  workflow_dispatch:
+    inputs:
+      testing_formulae:
+        description: Formulae to test dependents for
+        required: false
+        default: openssl@3
+      brew_ref:
+        description: Brew branch/tag/sha to test
+        required: false
+        default: feat/add-parallel-dependent-testing
+      dry_run:
+        description: Use --dry-run for brew test-bot
+        required: false
+        default: "false"
+      skip_recursive_dependents:
+        description: Limit the run to direct dependents
+        required: false
+        default: "true"
+
+env:
+  HOMEBREW_DEVELOPER: 1
+  HOMEBREW_GITHUB_ACTIONS: 1
+  HOMEBREW_NO_AUTO_UPDATE: 1
+  HOMEBREW_NO_INSTALL_FROM_API: 1
+  HOMEBREW_TEST_BOT_ANALYTICS: 0
+  HOMEBREW_ENFORCE_SBOM: 1
+  HOMEBREW_NO_BUILD_ERROR_ISSUES: 1
+  GH_REPO: ${{ github.repository }}
+  GH_NO_UPDATE_NOTIFIER: 1
+  GH_PROMPT_DISABLED: 1
+
+jobs:
+  test_deps:
+    runs-on: ubuntu-latest
+    container:
+      image: ghcr.io/homebrew/ubuntu22.04:main
+      options: --user=linuxbrew
+    timeout-minutes: 360
+    defaults:
+      run:
+        shell: /bin/bash -xeuo pipefail {0}
+    env:
+      BREW_DIR: /home/linuxbrew/.linuxbrew/Homebrew
+      BOTTLES_DIR: ${{ github.workspace }}/bottles
+      TEST_BRANCH: ${{ inputs.brew_ref }}
+      TESTING_FORMULAE: ${{ inputs.testing_formulae }}
+      DRY_RUN: ${{ inputs.dry_run }}
+      SKIP_RECURSIVE_DEPENDENTS: ${{ inputs.skip_recursive_dependents }}
+    steps:
+      - name: Switch Homebrew/brew to test branch
+        run: |
+          cd "$BREW_DIR"
+          git remote remove userfork || true
+          git remote add userfork https://github.com/GunniBusch/brew.git
+          git fetch --force --tags userfork "$TEST_BRANCH"
+          git checkout --force -B "$TEST_BRANCH" FETCH_HEAD
+
+      - name: Show dependent plan
+        run: |
+          args=(--formula --include-test --eval-all)
+          if [[ "$SKIP_RECURSIVE_DEPENDENTS" != "true" ]]; then
+            args+=(--recursive)
+          fi
+          "$BREW_DIR/bin/brew" uses "${args[@]}" "$TESTING_FORMULAE" | tee dependent-plan.txt
+
+      - name: Download testing bottles for dependent run
+        if: inputs.dry_run != 'true'
+        run: |
+          mkdir -p "$BOTTLES_DIR"
+          bottle_tag="$("$BREW_DIR/bin/brew" ruby -e 'puts Utils::Bottles.tag')"
+          IFS=',' read -r -a formulae <<<"$TESTING_FORMULAE"
+          for formula in "${formulae[@]}"; do
+            "$BREW_DIR/bin/brew" fetch --force-bottle --formula "$formula"
+            bottle_path="$("$BREW_DIR/bin/brew" --cache --bottle-tag="$bottle_tag" "$formula")"
+            bottle_filename="$(basename "$bottle_path" | sed -E 's/^[0-9a-f]{64}--//')"
+            cp -fv "$bottle_path" "$BOTTLES_DIR/$bottle_filename"
+          done
+
+      - name: Test dependents
+        run: |
+          mkdir -p "$BOTTLES_DIR"
+          cd "$BOTTLES_DIR"
+          args=(
+            test-bot
+            --only-formulae-dependents
+            --junit
+            --testing-formulae="$TESTING_FORMULAE"
+            --tested-formulae="$TESTING_FORMULAE"
+          )
+          if [[ "$DRY_RUN" == "true" ]]; then
+            args+=(--dry-run)
+          fi
+          if [[ "$SKIP_RECURSIVE_DEPENDENTS" == "true" ]]; then
+            args+=(--skip-recursive-dependents)
+          fi
+          start_epoch="$(date +%s)"
+          "$BREW_DIR/bin/brew" "${args[@]}" 2>&1 | tee test-bot.log
+          end_epoch="$(date +%s)"
+          echo "$((end_epoch - start_epoch))" > duration-seconds.txt
+
+      - name: Collect dependent artifacts
+        if: always()
+        run: |
+          mkdir -p artifacts
+          cp -f dependent-plan.txt artifacts/dependent-plan.txt || true
+          cp -f "$BOTTLES_DIR"/test-bot.log artifacts/test-bot.log || true
+          cp -f "$BOTTLES_DIR"/duration-seconds.txt artifacts/duration-seconds.txt || true
+          cp -f "$BOTTLES_DIR"/tested-dependents-*.txt artifacts/ 2>/dev/null || true
+          cp -f "$BOTTLES_DIR"/*.xml artifacts/ 2>/dev/null || true
+
+      - name: Upload dependent artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: parallel-dependents-${{ inputs.testing_formulae }}
+          if-no-files-found: warn
+          path: artifacts/
