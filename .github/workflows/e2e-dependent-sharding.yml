@@ -6,7 +6,7 @@ on:
       testing_formulae:
         description: Formulae to test dependents for
         required: false
-        default: bzip2
+        default: tree-sitter
       brew_ref:
         description: Brew branch/tag/sha to test
         required: false
@@ -33,7 +33,7 @@ env:
   GH_PROMPT_DISABLED: 1
 
 jobs:
-  test_deps:
+  test-bot:
     runs-on: ubuntu-latest
     container:
       image: ghcr.io/homebrew/ubuntu22.04:main
@@ -52,6 +52,20 @@ jobs:
       DRY_RUN: ${{ inputs.dry_run }}
       SKIP_RECURSIVE_DEPENDENTS: ${{ inputs.skip_recursive_dependents }}
     steps:
+      - name: Set up Homebrew
+        uses: Homebrew/actions/setup-homebrew@main
+        with:
+          core: true
+          cask: false
+        env:
+          GITHUB_REPOSITORY: GunniBusch/brew
+
+      - uses: Homebrew/actions/cache-homebrew-prefix@main
+        with:
+          install: gnu-tar
+          workflow-key: test-bot
+          uninstall: true
+
       - name: Switch Homebrew/brew to test branch
         run: |
           cd "$BREW_DIR"
@@ -59,6 +73,12 @@ jobs:
           git remote add userfork https://github.com/GunniBusch/brew.git
           git fetch --force --tags userfork "$TEST_BRANCH"
           git checkout --force -B "$TEST_BRANCH" FETCH_HEAD
+
+      - run: brew test-bot --only-cleanup-before
+
+      - run: brew test-bot --only-setup
+
+      - run: brew test-bot --only-formulae --only-json-tab --test-default-formula
 
       - name: Show dependent plan
         run: |
@@ -68,22 +88,22 @@ jobs:
           if [[ "$SKIP_RECURSIVE_DEPENDENTS" != "true" ]]; then
             args+=(--recursive)
           fi
-          "$BREW_DIR/bin/brew" uses "${args[@]}" "$TESTING_FORMULAE" | tee dependent-plan.txt
+          brew uses "${args[@]}" "$TESTING_FORMULAE" | tee dependent-plan.txt
 
       - name: Download testing bottles for dependent run
         if: inputs.dry_run != 'true'
         run: |
           mkdir -p "$BOTTLES_DIR"
-          bottle_tag="$("$BREW_DIR/bin/brew" ruby -e 'puts Utils::Bottles.tag')"
+          bottle_tag="$(brew ruby -e 'puts Utils::Bottles.tag')"
           IFS=',' read -r -a formulae <<<"$TESTING_FORMULAE"
           for formula in "${formulae[@]}"; do
-            "$BREW_DIR/bin/brew" fetch --force-bottle --formula "$formula"
-            bottle_path="$("$BREW_DIR/bin/brew" --cache --bottle-tag="$bottle_tag" "$formula")"
+            brew fetch --force-bottle --formula "$formula"
+            bottle_path="$(brew --cache --bottle-tag="$bottle_tag" "$formula")"
             bottle_filename="$(basename "$bottle_path" | sed -E 's/^[0-9a-f]{64}--//')"
             cp -fv "$bottle_path" "$BOTTLES_DIR/$bottle_filename"
           done
 
-      - name: Test dependents
+      - name: Run dependent test-bot pass
         run: |
           mkdir -p "$BOTTLES_DIR"
           cd "$BOTTLES_DIR"
@@ -101,7 +121,7 @@ jobs:
             args+=(--skip-recursive-dependents)
           fi
           start_epoch="$(date +%s)"
-          "$BREW_DIR/bin/brew" "${args[@]}" 2>&1 | tee test-bot.log
+          brew "${args[@]}" 2>&1 | tee test-bot.log
           end_epoch="$(date +%s)"
           echo "$((end_epoch - start_epoch))" > duration-seconds.txt
 
