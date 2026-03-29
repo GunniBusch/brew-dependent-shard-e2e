@@ -44,7 +44,9 @@ jobs:
         shell: /bin/bash -xeuo pipefail {0}
     env:
       BREW_DIR: /home/linuxbrew/.linuxbrew/Homebrew
-      BOTTLES_DIR: ${{ github.workspace }}/bottles
+      WORK_DIR: /tmp/parallel-dependents
+      BOTTLES_DIR: /tmp/parallel-dependents/bottles
+      ARTIFACTS_DIR: /tmp/parallel-dependents/artifacts
       TEST_BRANCH: ${{ inputs.brew_ref }}
       TESTING_FORMULAE: ${{ inputs.testing_formulae }}
       DRY_RUN: ${{ inputs.dry_run }}
@@ -60,6 +62,8 @@ jobs:
 
       - name: Show dependent plan
         run: |
+          mkdir -p "$WORK_DIR"
+          cd "$WORK_DIR"
           args=(--formula --include-test --eval-all)
           if [[ "$SKIP_RECURSIVE_DEPENDENTS" != "true" ]]; then
             args+=(--recursive)
@@ -104,12 +108,12 @@ jobs:
       - name: Collect dependent artifacts
         if: always()
         run: |
-          mkdir -p artifacts
-          cp -f dependent-plan.txt artifacts/dependent-plan.txt || true
-          cp -f "$BOTTLES_DIR"/test-bot.log artifacts/test-bot.log || true
-          cp -f "$BOTTLES_DIR"/duration-seconds.txt artifacts/duration-seconds.txt || true
-          cp -f "$BOTTLES_DIR"/tested-dependents-*.txt artifacts/ 2>/dev/null || true
-          cp -f "$BOTTLES_DIR"/*.xml artifacts/ 2>/dev/null || true
+          mkdir -p "$ARTIFACTS_DIR"
+          cp -f "$WORK_DIR"/dependent-plan.txt "$ARTIFACTS_DIR"/dependent-plan.txt || true
+          cp -f "$BOTTLES_DIR"/test-bot.log "$ARTIFACTS_DIR"/test-bot.log || true
+          cp -f "$BOTTLES_DIR"/duration-seconds.txt "$ARTIFACTS_DIR"/duration-seconds.txt || true
+          cp -f "$BOTTLES_DIR"/tested-dependents-*.txt "$ARTIFACTS_DIR"/ 2>/dev/null || true
+          cp -f "$BOTTLES_DIR"/*.xml "$ARTIFACTS_DIR"/ 2>/dev/null || true
 
       - name: Upload dependent artifacts
         if: always()
@@ -117,4 +121,4 @@ jobs:
         with:
           name: parallel-dependents-${{ inputs.testing_formulae }}
           if-no-files-found: warn
-          path: artifacts/
+          path: ${{ env.ARTIFACTS_DIR }}/
