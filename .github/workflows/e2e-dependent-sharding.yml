@@ -6,7 +6,7 @@ on:
       testing_formulae:
         description: Formulae to test dependents for
         required: false
-        default: openssl@3
+        default: bzip2
       brew_ref:
         description: Brew branch/tag/sha to test
         required: false
