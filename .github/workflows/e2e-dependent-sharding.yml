@@ -19,6 +19,18 @@ on:
         description: Limit the run to direct dependents
         required: false
         default: "true"
+      max_linux_x86_64_runners:
+        description: Maximum Linux x86_64 runners to allocate for dependent sharding
+        required: false
+        default: "4"
+      dependent_test_base_spillover_threshold:
+        description: Minimum dependents before Homebrew spills onto another runner
+        required: false
+        default: "1"
+      dependent_test_additional_runner_reluctance:
+        description: Quadratic reluctance factor for adding more Linux shards
+        required: false
+        default: "0"
 
 env:
   HOMEBREW_DEVELOPER: 1
@@ -28,29 +40,31 @@ env:
   HOMEBREW_TEST_BOT_ANALYTICS: 0
   HOMEBREW_ENFORCE_SBOM: 1
   HOMEBREW_NO_BUILD_ERROR_ISSUES: 1
+  HOMEBREW_LINUX_RUNNER: ubuntu-latest
+  HOMEBREW_DEPENDENT_TEST_BASE_SPILLOVER_THRESHOLD: ${{ inputs.dependent_test_base_spillover_threshold }}
+  HOMEBREW_DEPENDENT_TEST_ADDITIONAL_RUNNER_RELUCTANCE: ${{ inputs.dependent_test_additional_runner_reluctance }}
+  HOMEBREW_DEPENDENT_TEST_MAX_AVAILABLE_LINUX_X86_64_RUNNERS: ${{ inputs.max_linux_x86_64_runners }}
   GH_REPO: ${{ github.repository }}
   GH_NO_UPDATE_NOTIFIER: 1
   GH_PROMPT_DISABLED: 1
 
 jobs:
-  test-bot:
+  determine-runners:
     runs-on: ubuntu-latest
     container:
       image: ghcr.io/homebrew/ubuntu22.04:main
       options: --user=linuxbrew
-    timeout-minutes: 360
+    timeout-minutes: 60
     defaults:
       run:
         shell: /bin/bash -xeuo pipefail {0}
+    outputs:
+      runners: ${{ steps.determine.outputs.runners }}
+      runners_present: ${{ steps.determine.outputs.runners_present }}
     env:
       BREW_DIR: /home/linuxbrew/.linuxbrew/Homebrew
-      WORK_DIR: /tmp/parallel-dependents
-      BOTTLES_DIR: /tmp/parallel-dependents/bottles
-      ARTIFACTS_DIR: /tmp/parallel-dependents/artifacts
       TEST_BRANCH: ${{ inputs.brew_ref }}
       TESTING_FORMULAE: ${{ inputs.testing_formulae }}
-      DRY_RUN: ${{ inputs.dry_run }}
-      SKIP_RECURSIVE_DEPENDENTS: ${{ inputs.skip_recursive_dependents }}
     steps:
       - name: Set up Homebrew
         uses: Homebrew/actions/setup-homebrew@main
@@ -63,7 +77,7 @@ jobs:
       - uses: Homebrew/actions/cache-homebrew-prefix@main
         with:
           install: gnu-tar
-          workflow-key: test-bot
+          workflow-key: determine-runners
           uninstall: true
 
       - name: Switch Homebrew/brew to test branch
@@ -73,6 +87,88 @@ jobs:
           git remote add userfork https://github.com/GunniBusch/brew.git
           git fetch --force --tags userfork "$TEST_BRANCH"
           git checkout --force -B "$TEST_BRANCH" FETCH_HEAD
+
+      - name: Determine Linux dependent runners
+        id: determine
+        run: |
+          runner_output="$(mktemp)"
+          cd "$BREW_DIR"
+          GITHUB_OUTPUT="$runner_output" brew determine-test-runners --eval-all --dependents "$TESTING_FORMULAE"
+
+          raw_runners="$(sed -n 's/^runners=//p' "$runner_output")"
+          linux_runners="$(
+            ruby -rjson -e '
+              runners = JSON.parse(ARGF.read)
+              linux_runners = runners.select do |runner|
+                runner.fetch("name").start_with?("Linux x86_64")
+              end
+              print JSON.generate(linux_runners)
+            ' <<<"$raw_runners"
+          )"
+          runner_count="$(
+            ruby -rjson -e 'print JSON.parse(ARGF.read).length' <<<"$linux_runners"
+          )"
+
+          ruby -rjson -e 'puts JSON.pretty_generate(JSON.parse(ARGF.read))' <<<"$linux_runners"
+
+          {
+            echo "runners=$linux_runners"
+            echo "runners_present=$([[ "$runner_count" -gt 0 ]] && echo true || echo false)"
+          } >>"$GITHUB_OUTPUT"
+
+  test-bot:
+    name: ${{ matrix.name }}
+    needs: determine-runners
+    if: needs.determine-runners.outputs.runners_present == 'true'
+    runs-on: ${{ matrix.runner }}
+    container: ${{ matrix.container }}
+    timeout-minutes: ${{ matrix.timeout }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include: ${{ fromJson(needs.determine-runners.outputs.runners) }}
+    defaults:
+      run:
+        shell: /bin/bash -xeuo pipefail {0}
+    env:
+      BREW_DIR: /home/linuxbrew/.linuxbrew/Homebrew
+      WORK_DIR: /tmp/parallel-dependents-${{ matrix.dependent_shard_index }}
+      BOTTLES_DIR: /tmp/parallel-dependents-${{ matrix.dependent_shard_index }}/bottles
+      ARTIFACTS_DIR: /tmp/parallel-dependents-${{ matrix.dependent_shard_index }}/artifacts
+      TEST_BRANCH: ${{ inputs.brew_ref }}
+      TESTING_FORMULAE: ${{ inputs.testing_formulae }}
+      DRY_RUN: ${{ inputs.dry_run }}
+      SKIP_RECURSIVE_DEPENDENTS: ${{ inputs.skip_recursive_dependents }}
+      HOMEBREW_DEPENDENT_SHARD_INDEX: ${{ matrix.dependent_shard_index }}
+      HOMEBREW_DEPENDENT_SHARD_TOTAL: ${{ matrix.dependent_shard_total }}
+    steps:
+      - name: Set up Homebrew
+        uses: Homebrew/actions/setup-homebrew@main
+        with:
+          core: true
+          cask: false
+        env:
+          GITHUB_REPOSITORY: GunniBusch/brew
+
+      - uses: Homebrew/actions/cache-homebrew-prefix@main
+        with:
+          install: gnu-tar
+          workflow-key: test-bot-${{ matrix.dependent_shard_index }}
+          uninstall: true
+
+      - name: Switch Homebrew/brew to test branch
+        run: |
+          cd "$BREW_DIR"
+          git remote remove userfork || true
+          git remote add userfork https://github.com/GunniBusch/brew.git
+          git fetch --force --tags userfork "$TEST_BRANCH"
+          git checkout --force -B "$TEST_BRANCH" FETCH_HEAD
+
+      - name: Show shard configuration
+        run: |
+          echo "Runner: ${{ matrix.runner }}"
+          echo "Shard: ${HOMEBREW_DEPENDENT_SHARD_INDEX}/${HOMEBREW_DEPENDENT_SHARD_TOTAL}"
+          echo "Formulae: $TESTING_FORMULAE"
 
       - name: Show dependent plan
         run: |
@@ -133,6 +229,6 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: parallel-dependents-${{ inputs.testing_formulae }}
+          name: parallel-dependents-${{ inputs.testing_formulae }}-shard-${{ matrix.dependent_shard_index }}-of-${{ matrix.dependent_shard_total }}
           if-no-files-found: warn
           path: ${{ env.ARTIFACTS_DIR }}/
