@@ -40,10 +40,11 @@ env:
   HOMEBREW_TEST_BOT_ANALYTICS: 0
   HOMEBREW_ENFORCE_SBOM: 1
   HOMEBREW_NO_BUILD_ERROR_ISSUES: 1
+  HOMEBREW_DEPS_SHARDING: 1
   HOMEBREW_LINUX_RUNNER: ubuntu-latest
-  HOMEBREW_DEPENDENT_TEST_BASE_SPILLOVER_THRESHOLD: ${{ inputs.dependent_test_base_spillover_threshold }}
-  HOMEBREW_DEPENDENT_TEST_ADDITIONAL_RUNNER_RELUCTANCE: ${{ inputs.dependent_test_additional_runner_reluctance }}
-  HOMEBREW_DEPENDENT_TEST_MAX_AVAILABLE_LINUX_X86_64_RUNNERS: ${{ inputs.max_linux_x86_64_runners }}
+  HOMEBREW_DEPS_SHARD_MAX_RUNNERS_LINUX_X86_64: ${{ inputs.max_linux_x86_64_runners }}
+  HOMEBREW_DEPS_SHARD_BASE_THRESHOLD_LINUX_X86_64: ${{ inputs.dependent_test_base_spillover_threshold }}
+  HOMEBREW_DEPS_SHARD_RUNNER_PENALTY_LINUX_X86_64: ${{ inputs.dependent_test_additional_runner_reluctance }}
   GH_REPO: ${{ github.repository }}
   GH_NO_UPDATE_NOTIFIER: 1
   GH_PROMPT_DISABLED: 1
@@ -172,8 +173,8 @@ jobs:
       TESTED_FORMULAE: ${{ inputs.testing_formulae }}
       DRY_RUN: ${{ inputs.dry_run }}
       SKIP_RECURSIVE_DEPENDENTS: ${{ inputs.skip_recursive_dependents }}
-      HOMEBREW_DEPENDENT_SHARD_INDEX: ${{ matrix.dependent_shard_index }}
-      HOMEBREW_DEPENDENT_SHARD_TOTAL: ${{ matrix.dependent_shard_total }}
+      HOMEBREW_DEPS_SHARD_INDEX: ${{ matrix.dependent_shard_index }}
+      HOMEBREW_DEPS_SHARD_TOTAL: ${{ matrix.dependent_shard_total }}
     steps:
       - name: Set up Homebrew
         uses: Homebrew/actions/setup-homebrew@main
