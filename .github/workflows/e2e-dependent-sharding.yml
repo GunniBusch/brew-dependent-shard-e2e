@@ -61,6 +61,7 @@ jobs:
     outputs:
       runners: ${{ steps.determine.outputs.runners }}
       runners_present: ${{ steps.determine.outputs.runners_present }}
+      runner_count: ${{ steps.determine.outputs.runner_count }}
     env:
       BREW_DIR: /home/linuxbrew/.linuxbrew/Homebrew
       TEST_BRANCH: ${{ inputs.brew_ref }}
@@ -91,6 +92,7 @@ jobs:
       - name: Determine Linux dependent runners
         id: determine
         run: |
+          mkdir -p /tmp/parallel-dependents-matrix
           runner_output="$(mktemp)"
           cd "$BREW_DIR"
           GITHUB_OUTPUT="$runner_output" brew determine-test-runners --eval-all --dependents "$TESTING_FORMULAE"
@@ -109,15 +111,40 @@ jobs:
             ruby -rjson -e 'print JSON.parse(ARGF.read).length' <<<"$linux_runners"
           )"
 
+          printf '%s\n' "$linux_runners" > /tmp/parallel-dependents-matrix/runners.json
           ruby -rjson -e 'puts JSON.pretty_generate(JSON.parse(ARGF.read))' <<<"$linux_runners"
 
           {
             echo "runners=$linux_runners"
             echo "runners_present=$([[ "$runner_count" -gt 0 ]] && echo true || echo false)"
+            echo "runner_count=$runner_count"
           } >>"$GITHUB_OUTPUT"
 
+      - name: Show shard matrix
+        run: |
+          echo "### Linux shard matrix" >> "$GITHUB_STEP_SUMMARY"
+          echo >> "$GITHUB_STEP_SUMMARY"
+          echo "- Formulae: \`$TESTING_FORMULAE\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Shards: \`${{ steps.determine.outputs.runner_count }}\`" >> "$GITHUB_STEP_SUMMARY"
+          echo >> "$GITHUB_STEP_SUMMARY"
+          ruby -rjson -e '
+            runners = JSON.parse(File.read("/tmp/parallel-dependents-matrix/runners.json"))
+            runners.each do |runner|
+              index = runner.fetch("dependent_shard_index") + 1
+              total = runner.fetch("dependent_shard_total")
+              puts "- #{runner.fetch("name")} (`#{runner.fetch("runner")}`, shard #{index}/#{total})"
+            end
+          ' >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload shard matrix
+        uses: actions/upload-artifact@v4
+        with:
+          name: parallel-dependents-${{ inputs.testing_formulae }}-matrix
+          if-no-files-found: error
+          path: /tmp/parallel-dependents-matrix/runners.json
+
   test-bot:
-    name: ${{ matrix.name }}
+    name: dependent test-bot (${{ matrix.name }})
     needs: determine-runners
     if: needs.determine-runners.outputs.runners_present == 'true'
     runs-on: ${{ matrix.runner }}
