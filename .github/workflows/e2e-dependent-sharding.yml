@@ -52,7 +52,8 @@ jobs:
   determine-runners:
     runs-on: ubuntu-latest
     container:
-      image: ghcr.io/homebrew/brew:main
+      image: ghcr.io/homebrew/ubuntu22.04:main
+      options: --user=linuxbrew
     timeout-minutes: 60
     defaults:
       run:
@@ -74,6 +75,12 @@ jobs:
           cask: false
         env:
           GITHUB_REPOSITORY: GunniBusch/brew
+
+      - uses: Homebrew/actions/cache-homebrew-prefix@main
+        with:
+          install: gnu-tar
+          workflow-key: determine-runners
+          uninstall: true
 
       - name: Switch Homebrew/brew to test branch
         run: |
