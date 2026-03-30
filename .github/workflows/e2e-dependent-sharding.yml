@@ -191,6 +191,12 @@ jobs:
           git fetch --force --tags userfork "$TEST_BRANCH"
           git checkout --force -B "$TEST_BRANCH" FETCH_HEAD
 
+      - run: brew test-bot --only-cleanup-before
+
+      - run: brew test-bot --only-setup
+
+      - run: brew test-bot --only-formulae --only-json-tab --test-default-formula
+
       - name: Show shard configuration
         run: |
           echo "Runner: ${{ matrix.runner }}"
