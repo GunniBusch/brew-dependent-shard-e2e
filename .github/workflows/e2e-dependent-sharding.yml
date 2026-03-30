@@ -99,7 +99,7 @@ jobs:
 
           raw_runners="$(sed -n 's/^runners=//p' "$runner_output")"
           linux_runners="$(
-            ruby -rjson -e '
+            brew ruby -rjson -e '
               runners = JSON.parse(ARGF.read)
               linux_runners = runners.select do |runner|
                 runner.fetch("name").start_with?("Linux x86_64")
@@ -112,11 +112,11 @@ jobs:
             ' <<<"$raw_runners"
           )"
           runner_count="$(
-            ruby -rjson -e 'print JSON.parse(ARGF.read).length' <<<"$linux_runners"
+            brew ruby -rjson -e 'print JSON.parse(ARGF.read).length' <<<"$linux_runners"
           )"
 
           printf '%s\n' "$linux_runners" > /tmp/parallel-dependents-matrix/runners.json
-          ruby -rjson -e 'puts JSON.pretty_generate(JSON.parse(ARGF.read))' <<<"$linux_runners"
+          brew ruby -rjson -e 'puts JSON.pretty_generate(JSON.parse(ARGF.read))' <<<"$linux_runners"
 
           {
             echo "runners=$linux_runners"
@@ -131,7 +131,7 @@ jobs:
           echo "- Formulae: \`$TESTING_FORMULAE\`" >> "$GITHUB_STEP_SUMMARY"
           echo "- Shards: \`${{ steps.determine.outputs.runner_count }}\`" >> "$GITHUB_STEP_SUMMARY"
           echo >> "$GITHUB_STEP_SUMMARY"
-          ruby -rjson -e '
+          brew ruby -rjson -e '
             runners = JSON.parse(File.read("/tmp/parallel-dependents-matrix/runners.json"))
             runners.each do |runner|
               index = runner.fetch("dependent_shard_index") + 1
