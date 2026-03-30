@@ -63,6 +63,7 @@ jobs:
       runners_present: ${{ steps.determine.outputs.runners_present }}
       runner_count: ${{ steps.determine.outputs.runner_count }}
     env:
+      BREW_DIR: /home/linuxbrew/.linuxbrew/Homebrew
       TEST_BRANCH: ${{ inputs.brew_ref }}
       TESTING_FORMULAE: ${{ inputs.testing_formulae }}
     steps:
@@ -82,8 +83,8 @@ jobs:
           uninstall: true
 
       - name: Switch Homebrew/brew to test branch
-        working-directory: ${{ steps.set-up-homebrew.outputs.repository-path }}
         run: |
+          cd "$BREW_DIR"
           git remote remove userfork || true
           git remote add userfork https://github.com/GunniBusch/brew.git
           git fetch --force --tags userfork "$TEST_BRANCH"
@@ -161,6 +162,7 @@ jobs:
       run:
         shell: /bin/bash -xeuo pipefail {0}
     env:
+      BREW_DIR: /home/linuxbrew/.linuxbrew/Homebrew
       WORK_DIR: /tmp/parallel-dependents-${{ matrix.dependent_shard_index }}
       BOTTLES_DIR: /tmp/parallel-dependents-${{ matrix.dependent_shard_index }}/bottles
       ARTIFACTS_DIR: /tmp/parallel-dependents-${{ matrix.dependent_shard_index }}/artifacts
@@ -187,8 +189,8 @@ jobs:
           uninstall: true
 
       - name: Switch Homebrew/brew to test branch
-        working-directory: ${{ steps.set-up-homebrew.outputs.repository-path }}
         run: |
+          cd "$BREW_DIR"
           git remote remove userfork || true
           git remote add userfork https://github.com/GunniBusch/brew.git
           git fetch --force --tags userfork "$TEST_BRANCH"
