@@ -51,9 +51,6 @@ env:
 jobs:
   determine-runners:
     runs-on: ubuntu-latest
-    container:
-      image: ghcr.io/homebrew/ubuntu22.04:main
-      options: --user=linuxbrew
     timeout-minutes: 60
     defaults:
       run:
@@ -63,12 +60,33 @@ jobs:
       runners_present: ${{ steps.determine.outputs.runners_present }}
       runner_count: ${{ steps.determine.outputs.runner_count }}
     env:
-      BREW_DIR: /home/linuxbrew/.linuxbrew/Homebrew
       TEST_BRANCH: ${{ inputs.brew_ref }}
       TESTING_FORMULAE: ${{ inputs.testing_formulae }}
     steps:
+      - name: Install Linux dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            bzip2 \
+            ca-certificates \
+            curl \
+            file \
+            g++ \
+            git-core \
+            jq \
+            less \
+            locales \
+            make \
+            netbase \
+            patch \
+            procps \
+            sudo \
+            tzdata \
+            uuid-runtime
+
       - name: Set up Homebrew
         uses: Homebrew/actions/setup-homebrew@main
+        id: set-up-homebrew
         with:
           core: true
           cask: false
@@ -82,8 +100,8 @@ jobs:
           uninstall: true
 
       - name: Switch Homebrew/brew to test branch
+        working-directory: ${{ steps.set-up-homebrew.outputs.repository-path }}
         run: |
-          cd "$BREW_DIR"
           git remote remove userfork || true
           git remote add userfork https://github.com/GunniBusch/brew.git
           git fetch --force --tags userfork "$TEST_BRANCH"
@@ -94,7 +112,6 @@ jobs:
         run: |
           mkdir -p /tmp/parallel-dependents-matrix
           runner_output="$(mktemp)"
-          cd "$BREW_DIR"
           GITHUB_OUTPUT="$runner_output" brew determine-test-runners --eval-all --dependents "$TESTING_FORMULAE"
 
           raw_runners="$(sed -n 's/^runners=//p' "$runner_output")"
@@ -103,6 +120,12 @@ jobs:
               runners = JSON.parse(ARGF.read)
               linux_runners = runners.select do |runner|
                 runner.fetch("name").start_with?("Linux x86_64")
+              end
+              linux_runners.each do |runner|
+                runner.delete("container")
+                runner.delete("workdir")
+                runner["runner"] = "ubuntu-latest"
+                runner["timeout"] = [runner.fetch("timeout"), 360].min
               end
               print JSON.generate(linux_runners)
             ' <<<"$raw_runners"
@@ -148,7 +171,6 @@ jobs:
     needs: determine-runners
     if: needs.determine-runners.outputs.runners_present == 'true'
     runs-on: ${{ matrix.runner }}
-    container: ${{ matrix.container }}
     timeout-minutes: ${{ matrix.timeout }}
     strategy:
       fail-fast: false
@@ -158,7 +180,6 @@ jobs:
       run:
         shell: /bin/bash -xeuo pipefail {0}
     env:
-      BREW_DIR: /home/linuxbrew/.linuxbrew/Homebrew
       WORK_DIR: /tmp/parallel-dependents-${{ matrix.dependent_shard_index }}
       BOTTLES_DIR: /tmp/parallel-dependents-${{ matrix.dependent_shard_index }}/bottles
       ARTIFACTS_DIR: /tmp/parallel-dependents-${{ matrix.dependent_shard_index }}/artifacts
@@ -169,8 +190,30 @@ jobs:
       HOMEBREW_DEPENDENT_SHARD_INDEX: ${{ matrix.dependent_shard_index }}
       HOMEBREW_DEPENDENT_SHARD_TOTAL: ${{ matrix.dependent_shard_total }}
     steps:
+      - name: Install Linux dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            bzip2 \
+            ca-certificates \
+            curl \
+            file \
+            g++ \
+            git-core \
+            jq \
+            less \
+            locales \
+            make \
+            netbase \
+            patch \
+            procps \
+            sudo \
+            tzdata \
+            uuid-runtime
+
       - name: Set up Homebrew
         uses: Homebrew/actions/setup-homebrew@main
+        id: set-up-homebrew
         with:
           core: true
           cask: false
@@ -184,18 +227,12 @@ jobs:
           uninstall: true
 
       - name: Switch Homebrew/brew to test branch
+        working-directory: ${{ steps.set-up-homebrew.outputs.repository-path }}
         run: |
-          cd "$BREW_DIR"
           git remote remove userfork || true
           git remote add userfork https://github.com/GunniBusch/brew.git
           git fetch --force --tags userfork "$TEST_BRANCH"
           git checkout --force -B "$TEST_BRANCH" FETCH_HEAD
-
-      - run: brew test-bot --only-cleanup-before
-
-      - run: brew test-bot --only-setup
-
-      - run: brew test-bot --only-formulae --only-json-tab --test-default-formula
 
       - name: Show shard configuration
         run: |
