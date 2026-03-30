@@ -51,6 +51,9 @@ env:
 jobs:
   determine-runners:
     runs-on: ubuntu-latest
+    container:
+      image: ghcr.io/homebrew/ubuntu22.04:main
+      options: --user=linuxbrew
     timeout-minutes: 60
     defaults:
       run:
@@ -63,27 +66,6 @@ jobs:
       TEST_BRANCH: ${{ inputs.brew_ref }}
       TESTING_FORMULAE: ${{ inputs.testing_formulae }}
     steps:
-      - name: Install Linux dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends \
-            bzip2 \
-            ca-certificates \
-            curl \
-            file \
-            g++ \
-            git-core \
-            jq \
-            less \
-            locales \
-            make \
-            netbase \
-            patch \
-            procps \
-            sudo \
-            tzdata \
-            uuid-runtime
-
       - name: Set up Homebrew
         uses: Homebrew/actions/setup-homebrew@main
         id: set-up-homebrew
@@ -122,8 +104,6 @@ jobs:
                 runner.fetch("name").start_with?("Linux x86_64")
               end
               linux_runners.each do |runner|
-                runner.delete("container")
-                runner.delete("workdir")
                 runner["runner"] = "ubuntu-latest"
                 runner["timeout"] = [runner.fetch("timeout"), 360].min
               end
@@ -171,6 +151,7 @@ jobs:
     needs: determine-runners
     if: needs.determine-runners.outputs.runners_present == 'true'
     runs-on: ${{ matrix.runner }}
+    container: ${{ matrix.container }}
     timeout-minutes: ${{ matrix.timeout }}
     strategy:
       fail-fast: false
@@ -190,27 +171,6 @@ jobs:
       HOMEBREW_DEPENDENT_SHARD_INDEX: ${{ matrix.dependent_shard_index }}
       HOMEBREW_DEPENDENT_SHARD_TOTAL: ${{ matrix.dependent_shard_total }}
     steps:
-      - name: Install Linux dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends \
-            bzip2 \
-            ca-certificates \
-            curl \
-            file \
-            g++ \
-            git-core \
-            jq \
-            less \
-            locales \
-            make \
-            netbase \
-            patch \
-            procps \
-            sudo \
-            tzdata \
-            uuid-runtime
-
       - name: Set up Homebrew
         uses: Homebrew/actions/setup-homebrew@main
         id: set-up-homebrew
