@@ -90,11 +90,11 @@ jobs:
         run: |
           mkdir -p /tmp/parallel-dependents-matrix
           runner_output="$(mktemp)"
-          GITHUB_OUTPUT="$runner_output" "$BREW_DIR/bin/brew" determine-test-runners --eval-all --dependents "$TESTING_FORMULAE"
+          GITHUB_OUTPUT="$runner_output" /home/linuxbrew/.linuxbrew/bin/brew determine-test-runners --eval-all --dependents "$TESTING_FORMULAE"
 
           raw_runners="$(sed -n 's/^runners=//p' "$runner_output")"
           linux_runners="$(
-            "$BREW_DIR/bin/brew" ruby -rjson -e '
+            /home/linuxbrew/.linuxbrew/bin/brew ruby -rjson -e '
               runners = JSON.parse(ARGF.read)
               linux_runners = runners.select do |runner|
                 runner.fetch("name").start_with?("Linux x86_64")
@@ -107,11 +107,11 @@ jobs:
             ' <<<"$raw_runners"
           )"
           runner_count="$(
-            "$BREW_DIR/bin/brew" ruby -rjson -e 'print JSON.parse(ARGF.read).length' <<<"$linux_runners"
+            /home/linuxbrew/.linuxbrew/bin/brew ruby -rjson -e 'print JSON.parse(ARGF.read).length' <<<"$linux_runners"
           )"
 
           printf '%s\n' "$linux_runners" > /tmp/parallel-dependents-matrix/runners.json
-          "$BREW_DIR/bin/brew" ruby -rjson -e 'puts JSON.pretty_generate(JSON.parse(ARGF.read))' <<<"$linux_runners"
+          /home/linuxbrew/.linuxbrew/bin/brew ruby -rjson -e 'puts JSON.pretty_generate(JSON.parse(ARGF.read))' <<<"$linux_runners"
 
           {
             echo "runners=$linux_runners"
@@ -126,7 +126,7 @@ jobs:
           echo "- Formulae: \`$TESTING_FORMULAE\`" >> "$GITHUB_STEP_SUMMARY"
           echo "- Shards: \`${{ steps.determine.outputs.runner_count }}\`" >> "$GITHUB_STEP_SUMMARY"
           echo >> "$GITHUB_STEP_SUMMARY"
-          "$BREW_DIR/bin/brew" ruby -rjson -e '
+          /home/linuxbrew/.linuxbrew/bin/brew ruby -rjson -e '
             runners = JSON.parse(File.read("/tmp/parallel-dependents-matrix/runners.json"))
             runners.each do |runner|
               index = runner.fetch("shard_index") + 1
@@ -202,17 +202,17 @@ jobs:
           if [[ "$SKIP_RECURSIVE_DEPENDENTS" != "true" ]]; then
             args+=(--recursive)
           fi
-          "$BREW_DIR/bin/brew" uses "${args[@]}" "$TESTING_FORMULAE" | tee dependent-plan.txt
+          /home/linuxbrew/.linuxbrew/bin/brew uses "${args[@]}" "$TESTING_FORMULAE" | tee dependent-plan.txt
 
       - name: Download testing bottles for dependent run
         if: inputs.dry_run != 'true'
         run: |
           mkdir -p "$BOTTLES_DIR"
-          bottle_tag="$("$BREW_DIR/bin/brew" ruby -e 'puts Utils::Bottles.tag')"
+          bottle_tag="$(/home/linuxbrew/.linuxbrew/bin/brew ruby -e 'puts Utils::Bottles.tag')"
           IFS=',' read -r -a formulae <<<"$TESTING_FORMULAE"
           for formula in "${formulae[@]}"; do
-            "$BREW_DIR/bin/brew" fetch --force-bottle --formula "$formula"
-            bottle_path="$("$BREW_DIR/bin/brew" --cache --bottle-tag="$bottle_tag" "$formula")"
+            /home/linuxbrew/.linuxbrew/bin/brew fetch --force-bottle --formula "$formula"
+            bottle_path="$(/home/linuxbrew/.linuxbrew/bin/brew --cache --bottle-tag="$bottle_tag" "$formula")"
             bottle_filename="$(basename "$bottle_path" | sed -E 's/^[0-9a-f]{64}--//')"
             cp -fv "$bottle_path" "$BOTTLES_DIR/$bottle_filename"
           done
@@ -232,7 +232,7 @@ jobs:
       - name: Test dependents
         run: |
           mkdir -p "$BOTTLES_DIR"
-          xargs -t "$BREW_DIR/bin/brew" test-bot \
+          xargs -t /home/linuxbrew/.linuxbrew/bin/brew test-bot \
             --testing-formulae="$TESTING_FORMULAE" \
             --tested-formulae="$TESTING_FORMULAE" \
             <<<"${{ steps.dependent-args.outputs.test_bot_dependents_args }}"
