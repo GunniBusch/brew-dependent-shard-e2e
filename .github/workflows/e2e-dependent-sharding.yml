@@ -161,10 +161,11 @@ jobs:
       BREW_DIR: /home/linuxbrew/.linuxbrew/Homebrew
       GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       HOMEBREW_GITHUB_API_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      BOTTLES_DIR: ${{ format('{0}/bottles', matrix.workdir || github.workspace) }}
+      WORK_DIR: /tmp/parallel-dependents-${{ matrix.shard_index }}
+      BOTTLES_DIR: /tmp/parallel-dependents-${{ matrix.shard_index }}/bottles
+      ARTIFACTS_DIR: /tmp/parallel-dependents-${{ matrix.shard_index }}/artifacts
       TEST_BRANCH: ${{ inputs.brew_ref }}
       TESTING_FORMULAE: ${{ matrix.testing_formulae }}
-      TESTED_FORMULAE: ${{ inputs.testing_formulae }}
       DRY_RUN: ${{ inputs.dry_run }}
       SKIP_RECURSIVE_DEPENDENTS: ${{ inputs.skip_recursive_dependents }}
       HOMEBREW_DEPS_SHARD_INDEX: ${{ matrix.shard_index }}
@@ -187,12 +188,34 @@ jobs:
           git fetch --force --tags userfork "$TEST_BRANCH"
           git checkout --force -B "$TEST_BRANCH" FETCH_HEAD
 
-      - name: Pre-test steps
-        uses: Homebrew/actions/pre-build@main
-        with:
-          bottles-directory: ${{ env.BOTTLES_DIR }}
-          cleanup: ${{ matrix.cleanup }}
-          download-bottles: false
+      - name: Show shard configuration
+        run: |
+          echo "Runner: ${{ matrix.runner }}"
+          echo "Shard: ${HOMEBREW_DEPS_SHARD_INDEX}/${HOMEBREW_DEPS_SHARD_TOTAL}"
+          echo "Formulae: $TESTING_FORMULAE"
+
+      - name: Show dependent plan
+        run: |
+          mkdir -p "$WORK_DIR"
+          cd "$WORK_DIR"
+          args=(--formula --include-test --eval-all)
+          if [[ "$SKIP_RECURSIVE_DEPENDENTS" != "true" ]]; then
+            args+=(--recursive)
+          fi
+          "$BREW_DIR/bin/brew" uses "${args[@]}" "$TESTING_FORMULAE" | tee dependent-plan.txt
+
+      - name: Download testing bottles for dependent run
+        if: inputs.dry_run != 'true'
+        run: |
+          mkdir -p "$BOTTLES_DIR"
+          bottle_tag="$("$BREW_DIR/bin/brew" ruby -e 'puts Utils::Bottles.tag')"
+          IFS=',' read -r -a formulae <<<"$TESTING_FORMULAE"
+          for formula in "${formulae[@]}"; do
+            "$BREW_DIR/bin/brew" fetch --force-bottle --formula "$formula"
+            bottle_path="$("$BREW_DIR/bin/brew" --cache --bottle-tag="$bottle_tag" "$formula")"
+            bottle_filename="$(basename "$bottle_path" | sed -E 's/^[0-9a-f]{64}--//')"
+            cp -fv "$bottle_path" "$BOTTLES_DIR/$bottle_filename"
+          done
 
       - name: Build dependent test-bot args
         id: dependent-args
@@ -208,18 +231,25 @@ jobs:
 
       - name: Test dependents
         run: |
+          mkdir -p "$BOTTLES_DIR"
           xargs -t "$BREW_DIR/bin/brew" test-bot \
             --testing-formulae="$TESTING_FORMULAE" \
-            --tested-formulae="$TESTED_FORMULAE" \
+            --tested-formulae="$TESTING_FORMULAE" \
             <<<"${{ steps.dependent-args.outputs.test_bot_dependents_args }}"
         working-directory: ${{ env.BOTTLES_DIR }}
 
-      - name: Post-build steps
+      - name: Collect dependent artifacts
         if: always()
-        uses: Homebrew/actions/post-build@main
+        run: |
+          mkdir -p "$ARTIFACTS_DIR"
+          cp -f "$WORK_DIR"/dependent-plan.txt "$ARTIFACTS_DIR"/dependent-plan.txt || true
+          cp -f "$BOTTLES_DIR"/tested-dependents-*.txt "$ARTIFACTS_DIR"/ 2>/dev/null || true
+          cp -f "$BOTTLES_DIR"/*.xml "$ARTIFACTS_DIR"/ 2>/dev/null || true
+
+      - name: Upload dependent artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
         with:
-          runner: ${{ format('{0}-deps', matrix.runner) }}
-          cleanup: ${{ matrix.cleanup }}
-          bottles-directory: ${{ env.BOTTLES_DIR }}
-          logs-directory: ${{ format('{0}/logs', env.BOTTLES_DIR) }}
-          upload-bottles: false
+          name: parallel-dependents-${{ inputs.testing_formulae }}-shard-${{ matrix.shard_index }}-of-${{ matrix.shard_total }}
+          if-no-files-found: warn
+          path: ${{ env.ARTIFACTS_DIR }}/
