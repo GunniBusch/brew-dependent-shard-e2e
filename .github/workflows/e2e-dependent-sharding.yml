@@ -192,7 +192,7 @@ jobs:
         with:
           bottles-directory: ${{ env.BOTTLES_DIR }}
           cleanup: ${{ matrix.cleanup }}
-          download-bottles: true
+          download-bottles: false
 
       - name: Build dependent test-bot args
         id: dependent-args
