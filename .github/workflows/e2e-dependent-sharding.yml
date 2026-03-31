@@ -77,12 +77,6 @@ jobs:
         env:
           GITHUB_REPOSITORY: GunniBusch/brew
 
-      - uses: Homebrew/actions/cache-homebrew-prefix@main
-        with:
-          install: gnu-tar
-          workflow-key: determine-runners
-          uninstall: true
-
       - name: Switch Homebrew/brew to test branch
         run: |
           cd "$BREW_DIR"
@@ -135,8 +129,8 @@ jobs:
           brew ruby -rjson -e '
             runners = JSON.parse(File.read("/tmp/parallel-dependents-matrix/runners.json"))
             runners.each do |runner|
-              index = runner.fetch("dependent_shard_index") + 1
-              total = runner.fetch("dependent_shard_total")
+              index = runner.fetch("shard_index") + 1
+              total = runner.fetch("shard_total")
               puts "- #{runner.fetch("name")} (`#{runner.fetch("runner")}`, shard #{index}/#{total})"
             end
           ' >> "$GITHUB_STEP_SUMMARY"
@@ -173,8 +167,8 @@ jobs:
       TESTED_FORMULAE: ${{ inputs.testing_formulae }}
       DRY_RUN: ${{ inputs.dry_run }}
       SKIP_RECURSIVE_DEPENDENTS: ${{ inputs.skip_recursive_dependents }}
-      HOMEBREW_DEPS_SHARD_INDEX: ${{ matrix.dependent_shard_index }}
-      HOMEBREW_DEPS_SHARD_TOTAL: ${{ matrix.dependent_shard_total }}
+      HOMEBREW_DEPS_SHARD_INDEX: ${{ matrix.shard_index }}
+      HOMEBREW_DEPS_SHARD_TOTAL: ${{ matrix.shard_total }}
     steps:
       - name: Set up Homebrew
         uses: Homebrew/actions/setup-homebrew@main
